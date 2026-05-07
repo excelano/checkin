@@ -36,28 +36,28 @@ PHASE3-NOTES.md    patterns extracted from the archived web prototype
 PRIVACY.md         privacy statement
 SELF-HOSTING.md    self-hosting walkthrough
 
+CheckIn.xcodeproj/ Xcode project (committed; bundle ID, deployment target, MSAL package reference all wired)
 CheckIn/
     CheckInApp.swift
     Info.plist
     Assets.xcassets/
     Models/        plain Codable structs for Graph responses
     Services/      MSAL auth, Graph client
-    Utilities/     brand, time formatting, constants
+    Utilities/     brand, time formatting, constants, HTML stripping
     Views/         ContentView placeholder (Phase 4 fleshes this out)
 ```
 
 ## Getting set up (macOS)
 
-The Xcode project file is intentionally not in this repo. Create one fresh:
+```bash
+git clone https://github.com/excelano/checkin.git
+cd checkin
+open CheckIn.xcodeproj
+```
 
-1. Open Xcode, File → New → Project, iOS App template.
-2. Product Name: `CheckIn`. Bundle Identifier: `com.excelano.checkin`. Interface: SwiftUI. Language: Swift.
-3. Save the project at the root of this repo (`~/checkin/`). Xcode will create `CheckIn.xcodeproj` next to the existing `CheckIn/` directory.
-4. Delete the auto-generated `CheckInApp.swift` and `ContentView.swift` Xcode created. Add the existing `CheckIn/` files to the project (right-click the project navigator → "Add Files to CheckIn", select the directory, check "Create groups").
-5. In project settings, replace the auto-generated `Info.plist` with the one in this repo, or merge the keys (URL schemes, query schemes, microphone and speech-recognition usage descriptions).
-6. Add MSAL via Swift Package Manager: File → Add Package Dependencies, URL `https://github.com/AzureAD/microsoft-authentication-library-for-objc`.
-7. Set deployment target to iOS 17.0.
-8. Build. The placeholder `ContentView` should sign in with your M365 account and show "Signed in."
+Xcode resolves the MSAL Swift Package on first open (takes a moment). For simulator builds no signing is needed; for device builds, set your Apple Developer team in **Signing & Capabilities**. Build with `Cmd+B`, run with `Cmd+R`. The placeholder `ContentView` shows a sign-in button; signing in completes the MSAL OAuth flow against my Excelano Azure App Registration and lands on a "Signed in" placeholder.
+
+Minimum deployment is iOS 17. Xcode 16 or later is required (the project uses synchronized root groups).
 
 If you want to use your own Azure App Registration instead of mine, see `SELF-HOSTING.md`.
 

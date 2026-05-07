@@ -65,15 +65,14 @@ You will need a Mac with Xcode 15 or later, an Apple Developer account (the free
 
 1. Open `CheckIn/Info.plist`. Replace the `CFBundleURLSchemes` entry from `msauth.com.excelano.checkin` to your scheme. Update the microphone and speech-recognition usage description strings if you want them to refer to your project's name instead of CheckIn.
 2. Open `CheckIn/Utilities/Constants.swift`. Set `clientID` to your Azure client ID (you create this in step 4). Update `redirectURI` from `msauth.com.excelano.checkin://auth` to `msauth.<your-bundle-id>://auth`. Update `authority` if you are running single-tenant.
-3. A grep for `com.excelano.checkin` finds every other reference to the published bundle ID. Update each to match your chosen value.
+3. A grep for `com.excelano.checkin` across the repo finds every reference, including `PRODUCT_BUNDLE_IDENTIFIER` entries inside `CheckIn.xcodeproj/project.pbxproj`. Update each to match your chosen value (a sed pass works for the `.pbxproj`: `sed -i '' 's/com\.excelano\.checkin/your.bundle.id/g' CheckIn.xcodeproj/project.pbxproj`).
 
 ### Step 3: Configure the Xcode project
 
-1. Open the project in Xcode (or create one fresh per `README.md` if you have not already).
+1. Open the project: `open CheckIn.xcodeproj`.
 2. In **Signing & Capabilities**, set **Team** to your Apple Developer team.
-3. Set **Bundle Identifier** to your chosen bundle ID.
-4. Verify the deployment target is iOS 17.0.
-5. Confirm MSAL is added via Swift Package Manager: `https://github.com/AzureAD/microsoft-authentication-library-for-objc`.
+3. Verify the deployment target is iOS 17 (the committed project sets it on the target; the project-level default may differ).
+4. MSAL is wired in as a Swift Package Manager dependency at `https://github.com/AzureAD/microsoft-authentication-library-for-objc`. Xcode resolves it on first open.
 
 ### Step 4: Create the Azure App Registration
 
