@@ -9,12 +9,14 @@ import MSAL
 @main
 struct CheckInApp: App {
     @State private var authService = AuthService()
+    @State private var stateMachine = StateMachine()
 
     var body: some Scene {
         WindowGroup {
-            ContentView(authService: authService)
+            ContentView(authService: authService,
+                        stateMachine: stateMachine)
                 .onOpenURL { url in
-                    // Pass the MSAL redirect callback URL back to MSAL
+                    // Pass the MSAL redirect callback URL back to MSAL.
                     MSALPublicClientApplication.handleMSALResponse(
                         url, sourceApplication: nil
                     )
