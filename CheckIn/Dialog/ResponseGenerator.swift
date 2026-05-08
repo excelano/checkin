@@ -42,8 +42,12 @@ struct StubResponseGenerator: ResponseGenerator {
             return SpokenResponse(text: "Cancelled, stub.", category: .answer)
         case .ordinalSelection:
             return SpokenResponse(text: "Selected, stub.", category: .answer)
+        case .inScopeUnsupported:
+            return SpokenResponse(text: "Tap to open in Outlook.", category: .redirect)
+        case .outOfScope:
+            return SpokenResponse(text: "Outside my range.", category: .refusal)
         case .unknown:
-            return SpokenResponse(text: "I'm not sure I can help with that.", category: .refusal)
+            return SpokenResponse(text: "I missed that. Try again?", category: .error)
         }
     }
 }

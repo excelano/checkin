@@ -12,9 +12,12 @@ protocol IntentClassifier {
     func classify(utterance: String, context: DialogContext) -> ClassifiedIntent
 }
 
-/// The supported Day 1 intents per PLAN.md. Phase 2 type-checks the surface;
+/// The Day 1 intent surface per PLAN.md, plus the two scope categories
+/// (D18 out-of-scope, D19 in-scope-unsupported with sub-kinds) the
+/// classifier emits when the utterance falls outside what voice can do.
+///
 /// Phase 3 maps `NLEmbedding` similarity scores onto these cases.
-enum Intent: String, Equatable {
+enum Intent: Hashable {
     case summary
     case filter            // sender or topic filter
     case refresh
@@ -27,18 +30,53 @@ enum Intent: String, Equatable {
     case yes               // confirmation responses
     case no
     case ordinalSelection  // "the first", "number two"
+
+    /// In-scope subject (calendar, email, chats) but the requested action
+    /// isn't a Day 1 voice capability. Sub-kind selects the redirect pool.
+    case inScopeUnsupported(UnsupportedKind)
+
+    /// Outside the bounded scope entirely. D18 refusal pool applies.
+    case outOfScope
+
+    /// Confidence below the floor and no scope signal. Treated as a
+    /// recoverable parse miss; the dialog re-prompts rather than refuses.
     case unknown
+}
+
+/// The D19 sub-categories. Each maps to its own redirect pool because the
+/// touch-path guidance differs ("tap to open in Outlook" vs "compose in
+/// Outlook" vs "browse in Outlook").
+enum UnsupportedKind: Hashable {
+    case readContent       // "what does it say", "read me Tony's email"
+    case summarizeContent  // "summarize Tony's email", "what's in it"
+    case analyzeContent    // "is this important", "what's it about"
+    case voiceReply        // "reply to Tony", "send Tony a message"
+    case listBrowse        // "what else is there", "show me all of them"
 }
 
 struct ClassifiedIntent: Equatable {
     let intent: Intent
     let confidence: Double
     let entities: [String: String]
+
+    /// Ranked alternatives below the top, surfaced for D7 disambiguation
+    /// when the score gap between top-1 and top-2 is small.
+    let alternatives: [Intent]
+
+    init(intent: Intent,
+         confidence: Double,
+         entities: [String: String] = [:],
+         alternatives: [Intent] = []) {
+        self.intent = intent
+        self.confidence = confidence
+        self.entities = entities
+        self.alternatives = alternatives
+    }
 }
 
 /// Deterministic stub for tests and SwiftUI previews. Pattern-matches on
-/// keyword presence; no fuzzy logic, no fallbacks. Real classification
-/// arrives in Phase 3.
+/// keyword presence; no fuzzy logic, no fallbacks. The real classifier
+/// is `NLEmbeddingIntentClassifier`.
 struct StubIntentClassifier: IntentClassifier {
     func classify(utterance: String, context: DialogContext) -> ClassifiedIntent {
         let lower = utterance.lowercased()
@@ -79,6 +117,6 @@ struct StubIntentClassifier: IntentClassifier {
             intent = .unknown
         }
 
-        return ClassifiedIntent(intent: intent, confidence: 1.0, entities: [:])
+        return ClassifiedIntent(intent: intent, confidence: 1.0)
     }
 }
