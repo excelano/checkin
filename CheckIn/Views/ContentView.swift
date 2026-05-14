@@ -116,6 +116,9 @@ private struct SignInView: View {
                 _ = try await authService.signIn(enableTeams: false)
                 onAuthenticated()
             } catch {
+                let ns = error as NSError
+                NSLog("[CheckIn AuthError] domain=%@ code=%ld localized=%@ userInfo=%@",
+                      ns.domain, ns.code, ns.localizedDescription, ns.userInfo as NSDictionary)
                 errorMessage = error.localizedDescription
             }
             isSigningIn = false

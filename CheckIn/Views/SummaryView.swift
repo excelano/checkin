@@ -251,12 +251,12 @@ struct SummaryView: View {
     private func openHelp() {
         // Allow help from any active substate per D30 universal intent.
         guard case .active = stateMachine.currentState else { return }
-        stateMachine.transition(to: .active(.helpDisplayed(returnTo: restState())))
+        stateMachine.transition(to: .active(.helpDisplayed(returnTo: stateMachine.preferredRestState)))
     }
 
     private func openSettings() {
         guard case .active = stateMachine.currentState else { return }
-        stateMachine.transition(to: .active(.settingsDisplayed(returnTo: restState())))
+        stateMachine.transition(to: .active(.settingsDisplayed(returnTo: stateMachine.preferredRestState)))
     }
 
     private func deepLink(_ url: URL?) {

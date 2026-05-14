@@ -58,15 +58,15 @@ struct DialogContext {
     mutating func rememberPhrasing(_ phrasing: String, in category: ResponseCategory) {
         switch category {
         case .refusal:
-            append(phrasing, to: &recentRefusals)
+            Self.append(phrasing, to: &recentRefusals)
         case .redirect:
-            append(phrasing, to: &recentRedirects)
+            Self.append(phrasing, to: &recentRedirects)
         default:
             break
         }
     }
 
-    private mutating func append(_ phrasing: String, to ring: inout [String]) {
+    private static func append(_ phrasing: String, to ring: inout [String]) {
         ring.append(phrasing)
         if ring.count > Self.recentPhrasingLimit {
             ring.removeFirst(ring.count - Self.recentPhrasingLimit)
