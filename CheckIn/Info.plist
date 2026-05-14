@@ -44,7 +44,7 @@
 	<string>CheckIn uses the microphone for voice queries about your calendar, email, and chats. Speech recognition runs on-device; nothing is sent to Apple or any other server.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>CheckIn uses on-device speech recognition to understand your voice queries. Audio and transcripts stay on your device.</string>
-	<key>UILaunchImageFile</key>
-	<string></string>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>
