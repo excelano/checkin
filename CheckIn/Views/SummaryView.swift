@@ -224,7 +224,7 @@ struct SummaryView: View {
     private var micAccessibilityHint: String {
         switch stateMachine.currentState {
         case .active(.idle): return "Tap to start a voice turn"
-        case .active(.listening): return "Tap to cancel listening"
+        case .active(.listening): return "Tap to finish speaking"
         case .active(.speaking): return "Tap to interrupt and speak"
         default: return ""
         }
@@ -236,14 +236,17 @@ struct SummaryView: View {
         switch stateMachine.currentState {
         case .active(.idle):
             stateMachine.transition(to: .active(.listening))
-            // Phase 5: SpeechService.start()
-        case .active(.listening), .active(.disambiguating):
+        case .active(.listening):
+            // Tap-during-listening means "I'm done, process it." The
+            // coordinator finalizes the recognizer on this transition; the
+            // final transcript arrives shortly after as an isFinal update.
+            stateMachine.transition(to: .active(.processing(.thinking)))
+        case .active(.disambiguating):
             stateMachine.transition(to: .active(restState()))
-            // Phase 5: SpeechService.cancel()
         case .active(.speaking):
-            // Barge-in per D8: stop TTS, restart listening.
+            // Barge-in per D8: TTSService.stop() lands with the speaking
+            // wiring; for now the transition alone restarts listening.
             stateMachine.transition(to: .active(.listening))
-            // Phase 5: TTSService.stop(); SpeechService.start()
         default:
             break
         }

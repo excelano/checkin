@@ -14,7 +14,7 @@ struct CheckInApp: App {
 
     init() {
         let sm = StateMachine()
-        let speech = StubSpeechService()
+        let speech = AppleSpeechService()
         _stateMachine = State(initialValue: sm)
         self.coordinator = SessionCoordinator(stateMachine: sm, speechService: speech)
     }
