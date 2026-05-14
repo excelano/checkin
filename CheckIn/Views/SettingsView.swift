@@ -31,6 +31,7 @@ struct SettingsView: View {
     // D10 Voice Recognition Tuning
     @AppStorage("voiceTuningEnabled") private var voiceTuningEnabled: Bool = false
     @State private var showTuningDisclosure = false
+    @State private var lmManager = CustomLanguageModelManager()
 
     // D25 Advanced
     @AppStorage("customClientID") private var customClientID: String = ""
@@ -157,21 +158,14 @@ struct SettingsView: View {
 
     private var voiceTuningSection: some View {
         Section {
-            Toggle("Voice Recognition Tuning", isOn: Binding(
-                get: { voiceTuningEnabled },
-                set: { newValue in
-                    if newValue {
-                        // Don't flip on without the disclosure; the sheet
-                        // sets the AppStorage value when the user accepts.
+            Toggle("Voice Recognition Tuning", isOn: $voiceTuningEnabled)
+                .onChange(of: voiceTuningEnabled) { _, new in
+                    if new {
                         showTuningDisclosure = true
                     } else {
-                        voiceTuningEnabled = false
-                        Task { @MainActor in
-                            CustomLanguageModelManager().disable()
-                        }
+                        lmManager.disable()
                     }
                 }
-            ))
         } header: {
             Text("Voice Recognition Tuning")
         } footer: {
@@ -223,9 +217,14 @@ struct SettingsView: View {
 
     private func signOut() {
         authService.signOut()
-        stateMachine.transition(to: .signedOut)
-        stateMachine.resetContext()
         dismiss()
+        // Defer so the sheet dismissal animation can settle before
+        // ContentView swaps SummaryView for SignInView.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            stateMachine.transition(to: .signedOut)
+            stateMachine.resetContext()
+        }
     }
 }
 
@@ -249,6 +248,7 @@ private struct VoiceTuningDisclosureSheet: View {
                     Spacer(minLength: 24)
                     HStack(spacing: 12) {
                         Button {
+                            enabled = false
                             dismiss()
                         } label: {
                             Text("Not now")
@@ -259,8 +259,10 @@ private struct VoiceTuningDisclosureSheet: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
                         Button {
-                            enabled = true
-                            // Phase 5 wires the contact fetch + buildModel call.
+                            // Toggle already wrote `true` to AppStorage when
+                            // the user tapped it; this just confirms and
+                            // proceeds. Phase 5 wires the contact fetch +
+                            // buildModel call.
                             dismiss()
                         } label: {
                             Text("Turn on")

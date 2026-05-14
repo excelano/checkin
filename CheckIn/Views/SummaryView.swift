@@ -207,6 +207,7 @@ struct SummaryView: View {
 
     private var micEnabled: Bool {
         switch stateMachine.currentState {
+        case .active(.processing): return false
         case .active: return true
         default: return false
         }
