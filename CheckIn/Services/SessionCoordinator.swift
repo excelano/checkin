@@ -19,6 +19,7 @@ import os
 final class SessionCoordinator {
     private let stateMachine: StateMachine
     private let speechService: any SpeechService
+    private let ttsService: any TTSService
     private let intentClassifier: any IntentClassifier
     private let rankedClassifier: (any RankedIntentClassifier)?
     private let responseGenerator: any ResponseGenerator
@@ -28,27 +29,32 @@ final class SessionCoordinator {
 
     private var transitionTask: Task<Void, Never>?
     private var transcriptTask: Task<Void, Never>?
+    private var ttsEventTask: Task<Void, Never>?
 
     init(stateMachine: StateMachine,
          speechService: any SpeechService,
+         ttsService: any TTSService,
          intentClassifier: any IntentClassifier,
          responseGenerator: any ResponseGenerator,
          utteranceLog: any UtteranceLog) {
         self.stateMachine = stateMachine
         self.speechService = speechService
+        self.ttsService = ttsService
         self.intentClassifier = intentClassifier
         self.rankedClassifier = intentClassifier as? RankedIntentClassifier
         self.responseGenerator = responseGenerator
         self.utteranceLog = utteranceLog
     }
 
-    /// Begin consuming the state machine's transition stream and the
-    /// speech service's transcript stream. Idempotent so SwiftUI's `.task`
-    /// firing twice during view reattachment doesn't spawn duplicate consumers.
+    /// Begin consuming the state machine's transition stream, the
+    /// speech service's transcript stream, and the TTS event stream.
+    /// Idempotent so SwiftUI's `.task` firing twice during view
+    /// reattachment doesn't spawn duplicate consumers.
     func start() {
         guard transitionTask == nil else { return }
         let transitions = stateMachine.transitions
         let transcripts = speechService.transcripts
+        let ttsEvents = ttsService.events
 
         transitionTask = Task { [weak self] in
             for await event in transitions {
@@ -63,13 +69,22 @@ final class SessionCoordinator {
                 await self.handle(update)
             }
         }
+
+        ttsEventTask = Task { [weak self] in
+            for await event in ttsEvents {
+                guard let self else { break }
+                await self.handle(tts: event)
+            }
+        }
     }
 
     func stop() {
         transitionTask?.cancel()
         transcriptTask?.cancel()
+        ttsEventTask?.cancel()
         transitionTask = nil
         transcriptTask = nil
+        ttsEventTask = nil
     }
 
     private func handle(_ event: TransitionEvent) async {
@@ -93,6 +108,27 @@ final class SessionCoordinator {
             // Any other exit from listening (back to idle, app backgrounded,
             // error path) is a cancel — discard the partial transcript.
             speechService.cancel()
+        default:
+            break
+        }
+
+        // Speaking-state side effects are independent of the listening
+        // handling above. Entering speaking starts the synthesizer; leaving
+        // speaking for any reason cancels it as resource hygiene. D8 barge-in
+        // (auto-cut when VAD detects user speech mid-utterance) lands later.
+        switch (event.from, event.to) {
+        case (_, .active(.speaking(let response, _))):
+            do {
+                try ttsService.speak(response.text)
+            } catch {
+                logger.error("tts.speak failed: \(error.localizedDescription, privacy: .public)")
+                print("[coordinator] tts.speak failed: \(error.localizedDescription)")
+                stateMachine.transition(to: .active(.idle))
+            }
+        case (.active(.speaking), _):
+            if ttsService.isSpeaking {
+                ttsService.stop()
+            }
         default:
             break
         }
@@ -136,13 +172,34 @@ final class SessionCoordinator {
             print("[response] \"\(response.text)\" category=\(response.category)")
             #endif
 
-            // Phase 6 mic-to-response: log only, then drop back to idle so
-            // the UI doesn't strand the user on the spinner. The next slice
-            // wires TTS so the transition becomes .speaking, and the
-            // .speaking handler delivers the spoken response.
             if case .active(.processing) = stateMachine.currentState {
-                stateMachine.transition(to: .active(.idle))
+                let returnTo = stateMachine.preferredRestState
+                stateMachine.transition(
+                    to: .active(.speaking(response: response, returnTo: returnTo))
+                )
             }
+        }
+    }
+
+    /// Drive the state machine out of `.speaking` when the synthesizer
+    /// finishes or is cancelled. The `returnTo` carried in the speaking
+    /// payload picks tap-to-talk's idle or conversation mode's listening.
+    private func handle(tts event: TTSEvent) async {
+        logger.debug("tts: \(String(describing: event))")
+        #if DEBUG
+        print("[tts] \(event)")
+        #endif
+
+        switch event {
+        case .finished, .cancelled:
+            if case .active(.speaking(_, let returnTo)) = stateMachine.currentState {
+                let next: DialogState = (returnTo == .listening)
+                    ? .active(.listening)
+                    : .active(.idle)
+                stateMachine.transition(to: next)
+            }
+        default:
+            break
         }
     }
 

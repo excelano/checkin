@@ -4,6 +4,8 @@
 // Built with AI assistance (Claude, Anthropic)
 
 import Foundation
+import AVFoundation
+import os
 
 /// Text-to-speech surface backing the `speaking` state. The protocol seam
 /// lets previews and tests wire a no-op mock without booting
@@ -37,29 +39,88 @@ enum TTSServiceError: Error {
     case synthesizerUnavailable
 }
 
-/// Apple-backed implementation. Body lands in Phase 3.
-final class AppleTTSService: TTSService {
-    var isSpeaking: Bool {
-        fatalError("Phase 3: implement with AVSpeechSynthesizer")
+/// Apple-backed implementation per the TTSService doc comment.
+///
+/// `AVSpeechSynthesizer.delegate` is a weak reference, so this class is the
+/// delegate directly rather than wrapping one. NSObject inheritance is the
+/// minimum needed for `AVSpeechSynthesizerDelegate` conformance.
+///
+/// The synthesizer reuses the audio session `SpeechService` configures
+/// (`.playAndRecord` / `.voiceChat`) so listening and speaking share one
+/// full-duplex session. We do not reconfigure it here.
+final class AppleTTSService: NSObject, TTSService {
+    let events: AsyncStream<TTSEvent>
+    private let continuation: AsyncStream<TTSEvent>.Continuation
+
+    private let synthesizer = AVSpeechSynthesizer()
+    private let logger = Logger(subsystem: "com.excelano.checkin", category: "tts")
+
+    var isSpeaking: Bool { synthesizer.isSpeaking }
+
+    override init() {
+        let (stream, continuation) = AsyncStream<TTSEvent>.makeStream(bufferingPolicy: .unbounded)
+        self.events = stream
+        self.continuation = continuation
+        super.init()
+        synthesizer.delegate = self
     }
 
-    var events: AsyncStream<TTSEvent> {
-        fatalError("Phase 3: stream from AVSpeechSynthesizerDelegate")
+    deinit {
+        continuation.finish()
     }
 
     func speak(_ text: String) throws {
-        fatalError("Phase 3: AVSpeechUtterance with locale-matched voice")
+        let utterance = AVSpeechUtterance(string: text)
+        // One-line locale match per the slice brief; UK-voice tuning is
+        // aspirational and lands after PERSONA.md voice tuning.
+        utterance.voice = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
+        synthesizer.speak(utterance)
     }
 
     func stop() {
-        fatalError("Phase 3: stopSpeaking(at: .word)")
+        // `.word` cuts at the next word boundary so future D8 barge-in
+        // doesn't sound jarring. `.immediate` would chop mid-syllable.
+        synthesizer.stopSpeaking(at: .word)
     }
 
     func pause() {
-        fatalError("Phase 3: pauseSpeaking(at: .word)")
+        synthesizer.pauseSpeaking(at: .word)
     }
 
     func resume() {
-        fatalError("Phase 3: continueSpeaking()")
+        synthesizer.continueSpeaking()
+    }
+}
+
+extension AppleTTSService: AVSpeechSynthesizerDelegate {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                           didStart utterance: AVSpeechUtterance) {
+        continuation.yield(.started)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                           willSpeakRangeOfSpeechString characterRange: NSRange,
+                           utterance: AVSpeechUtterance) {
+        continuation.yield(.wordBoundary(charIndex: characterRange.location))
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                           didPause utterance: AVSpeechUtterance) {
+        continuation.yield(.paused)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                           didContinue utterance: AVSpeechUtterance) {
+        continuation.yield(.resumed)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                           didFinish utterance: AVSpeechUtterance) {
+        continuation.yield(.finished)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                           didCancel utterance: AVSpeechUtterance) {
+        continuation.yield(.cancelled)
     }
 }

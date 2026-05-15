@@ -15,6 +15,7 @@ struct CheckInApp: App {
     init() {
         let sm = StateMachine()
         let speech = AppleSpeechService()
+        let tts = AppleTTSService()
         let classifier: any IntentClassifier = NLEmbeddingIntentClassifier()
         let generator: any ResponseGenerator = PersonaResponseGenerator()
         let utteranceLog: any UtteranceLog
@@ -27,6 +28,7 @@ struct CheckInApp: App {
         self.coordinator = SessionCoordinator(
             stateMachine: sm,
             speechService: speech,
+            ttsService: tts,
             intentClassifier: classifier,
             responseGenerator: generator,
             utteranceLog: utteranceLog
