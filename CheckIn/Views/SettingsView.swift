@@ -140,17 +140,24 @@ struct SettingsView: View {
         Section {
             Picker("Mode", selection: $listeningMode) {
                 Text("Tap to talk").tag("tapToTalk")
-                Text("Conversation mode").tag("conversation")
             }
             .pickerStyle(.inline)
             .labelsHidden()
             .onChange(of: listeningMode) { _, new in
                 stateMachine.preferredRestState = (new == "conversation") ? .listening : .idle
             }
+            .onAppear {
+                // A previous build allowed selecting "conversation" before
+                // 5.4 wires the auto-finalization path. Reset any stale
+                // value so the rest-state stays at idle.
+                if listeningMode != "tapToTalk" {
+                    listeningMode = "tapToTalk"
+                }
+            }
         } header: {
             Text("Listening Mode")
         } footer: {
-            Text("Tap to talk: each turn requires a mic tap. Conversation mode: the mic stays hot between turns until you say \u{201C}done\u{201D} or close the app.")
+            Text("Tap to talk: each turn requires a mic tap. Conversation mode lands in a future release.")
         }
     }
 

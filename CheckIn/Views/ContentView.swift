@@ -122,7 +122,7 @@ private struct SignInView: View {
         errorMessage = nil
         Task {
             do {
-                _ = try await authService.signIn(enableTeams: false)
+                _ = try await authService.signIn(enableTeams: Constants.teamsEnabled)
                 onAuthenticated()
             } catch {
                 let ns = error as NSError

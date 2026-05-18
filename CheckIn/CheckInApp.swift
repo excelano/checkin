@@ -8,15 +8,19 @@ import MSAL
 
 @main
 struct CheckInApp: App {
-    @State private var authService = AuthService()
+    @State private var authService: AuthService
     @State private var stateMachine: StateMachine
     private let coordinator: SessionCoordinator
 
     init() {
+        let auth = AuthService()
         let sm = StateMachine()
         let speech = AppleSpeechService()
         let tts = AppleTTSService()
         let earcons = AppleEarconPlayer()
+        let graph = GraphClient(authService: auth, enableTeams: Constants.teamsEnabled)
+        let summary = GraphSummaryService(graphClient: graph,
+                                          teamsEnabled: Constants.teamsEnabled)
         let classifier: any IntentClassifier = NLEmbeddingIntentClassifier()
         let generator: any ResponseGenerator = PersonaResponseGenerator()
         let utteranceLog: any UtteranceLog
@@ -25,12 +29,14 @@ struct CheckInApp: App {
         #else
         utteranceLog = NoOpUtteranceLog()
         #endif
+        _authService = State(initialValue: auth)
         _stateMachine = State(initialValue: sm)
         self.coordinator = SessionCoordinator(
             stateMachine: sm,
             speechService: speech,
             ttsService: tts,
             earconPlayer: earcons,
+            summaryService: summary,
             intentClassifier: classifier,
             responseGenerator: generator,
             utteranceLog: utteranceLog

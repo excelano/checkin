@@ -21,6 +21,7 @@ final class SessionCoordinator {
     private let speechService: any SpeechService
     private let ttsService: any TTSService
     private let earconPlayer: any EarconPlayer
+    private let summaryService: any SummaryService
     private let intentClassifier: any IntentClassifier
     private let rankedClassifier: (any RankedIntentClassifier)?
     private let responseGenerator: any ResponseGenerator
@@ -36,6 +37,7 @@ final class SessionCoordinator {
          speechService: any SpeechService,
          ttsService: any TTSService,
          earconPlayer: any EarconPlayer,
+         summaryService: any SummaryService,
          intentClassifier: any IntentClassifier,
          responseGenerator: any ResponseGenerator,
          utteranceLog: any UtteranceLog) {
@@ -43,6 +45,7 @@ final class SessionCoordinator {
         self.speechService = speechService
         self.ttsService = ttsService
         self.earconPlayer = earconPlayer
+        self.summaryService = summaryService
         self.intentClassifier = intentClassifier
         self.rankedClassifier = intentClassifier as? RankedIntentClassifier
         self.responseGenerator = responseGenerator
@@ -151,6 +154,13 @@ final class SessionCoordinator {
         }
     }
 
+    private func needsSummary(_ intent: Intent) -> Bool {
+        switch intent {
+        case .summary, .filter, .refresh: return true
+        default: return false
+        }
+    }
+
     private func isListening(_ state: DialogState) -> Bool {
         if case .active(.listening) = state { return true }
         return false
@@ -180,9 +190,27 @@ final class SessionCoordinator {
             )
             let ranking = rankedClassifier?.rank(utterance: update.text,
                                                  context: context) ?? []
+
+            // Fetch fresh data for intents that need it before generating
+            // the spoken response. `.summary` and `.filter` both reference
+            // the data directly; `.refresh` populates the context so the
+            // user's next ask picks it up (per 5.2 decision: empty spoken
+            // ack on refresh, summary on next turn).
+            if needsSummary(classified.intent) {
+                #if DEBUG
+                print("[summary] fetching for intent=\(classified.intent)")
+                #endif
+                let summary = await summaryService.fetchSummary()
+                stateMachine.updateContext { $0.summary = summary }
+                #if DEBUG
+                let m = summary.meeting != nil ? "meeting" : "no-meeting"
+                print("[summary] fetched: emails=\(summary.emails.count) chats=\(summary.chats.count) \(m) emailErr=\(summary.emailError ?? "nil") chatErr=\(summary.chatError ?? "nil")")
+                #endif
+            }
+
             let response = responseGenerator.generate(
                 for: classified,
-                context: context
+                context: stateMachine.context
             )
 
             await utteranceLog.record(
