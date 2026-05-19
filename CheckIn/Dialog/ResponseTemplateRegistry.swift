@@ -291,6 +291,33 @@ enum ResponseTemplateRegistry {
 
     // MARK: - Summary phrasing
 
+    /// The user's question targets a single domain when they name it
+    /// explicitly. `.all` means either no domain word matched or two or
+    /// more domains matched and we fall back to the full three-part
+    /// summary instead of guessing which the user wanted.
+    enum SummaryDomain { case email, chat, meeting, all }
+
+    /// Keyword scan over the utterance. "message"/"messages" routes to
+    /// email — that's the dominant register in M365 voice queries, and
+    /// the user can disambiguate with "chats" or "teams" when they mean
+    /// the other thing.
+    static func detectDomain(_ utterance: String) -> SummaryDomain {
+        let lower = utterance.lowercased()
+
+        let emailHits = ["email", "mail", "unread", "inbox",
+                         "message", "messages"].contains { lower.contains($0) }
+        let chatHits = ["chat", "chats", "teams"].contains { lower.contains($0) }
+        let meetingHits = ["meeting", "calendar", "appointment",
+                           "schedule", "agenda"].contains { lower.contains($0) }
+
+        let count = [emailHits, chatHits, meetingHits].filter { $0 }.count
+        if count > 1 { return .all }
+        if emailHits { return .email }
+        if chatHits { return .chat }
+        if meetingHits { return .meeting }
+        return .all
+    }
+
     /// Builds a Day 1 summary sentence from the current `CheckInSummary`.
     /// PERSONA.md verbosity defaults to terse: two or three short sentences.
     /// Verbosity expansion (D5) lives outside this function and feeds into
@@ -327,6 +354,57 @@ enum ResponseTemplateRegistry {
         return parts.joined(separator: " ")
     }
 
+    static func summaryEmailOnly(from summary: CheckInSummary) -> String {
+        switch summary.emails.count {
+        case 0:
+            return "No unread."
+        case 1:
+            return "One unread, from \(summary.emails[0].from)."
+        case let n:
+            let first = summary.emails[0].from
+            return "\(spellCount(n)) unread, the latest from \(first)."
+        }
+    }
+
+    static func summaryChatOnly(from summary: CheckInSummary) -> String {
+        guard summary.teamsEnabled else {
+            return "Teams isn't enabled."
+        }
+        switch summary.chats.count {
+        case 0:
+            return "No pending chats."
+        case 1:
+            return "One chat, from \(summary.chats[0].from)."
+        case let n:
+            return "\(spellCount(n)) chats."
+        }
+    }
+
+    static func summaryMeetingOnly(from summary: CheckInSummary) -> String {
+        if let meeting = summary.meeting {
+            return meetingPhrase(meeting)
+        }
+        return "Nothing on your calendar coming up."
+    }
+
+    /// Narrow the email list to one sender and read the count back with
+    /// the latest subject. `sender` is the canonical form resolved by
+    /// `EntityMatcher` — case-insensitive against `email.from`.
+    static func summaryFilteredBySender(from summary: CheckInSummary,
+                                        matching sender: String) -> String {
+        let matches = summary.emails.filter {
+            $0.from.localizedCaseInsensitiveCompare(sender) == .orderedSame
+        }
+        switch matches.count {
+        case 0:
+            return "Nothing from \(sender)."
+        case 1:
+            return "One from \(sender), about \(matches[0].subject)."
+        case let n:
+            return "\(spellCount(n)) from \(sender), the latest about \(matches[0].subject)."
+        }
+    }
+
     private static func meetingPhrase(_ meeting: Meeting) -> String {
         let now = Date()
         let interval = meeting.start.timeIntervalSince(now)
@@ -347,7 +425,7 @@ enum ResponseTemplateRegistry {
     }
 
     private static let smallNumbers: [Int: String] = [
-        3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven",
+        2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven",
         8: "Eight", 9: "Nine", 10: "Ten"
     ]
 

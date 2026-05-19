@@ -12,10 +12,18 @@ import Foundation
 /// `DialogContext`. PERSONA.md governs the underlying strings.
 struct PersonaResponseGenerator: ResponseGenerator {
 
-    func generate(for intent: ClassifiedIntent, context: DialogContext) -> SpokenResponse {
+    func generate(for intent: ClassifiedIntent,
+                  utterance: String,
+                  resolvedSender: String?,
+                  context: DialogContext) -> SpokenResponse {
         switch intent.intent {
-        case .summary, .filter:
-            return summaryResponse(context: context)
+        case .summary:
+            return summaryResponse(utterance: utterance, context: context)
+
+        case .filter:
+            return filterResponse(utterance: utterance,
+                                  resolvedSender: resolvedSender,
+                                  context: context)
 
         case .refresh:
             // The actual fetch is on the Graph layer; the spoken response
@@ -76,12 +84,45 @@ struct PersonaResponseGenerator: ResponseGenerator {
 
     // MARK: - Summary
 
-    private func summaryResponse(context: DialogContext) -> SpokenResponse {
+    private func summaryResponse(utterance: String, context: DialogContext) -> SpokenResponse {
         guard let summary = context.summary else {
             return SpokenResponse(text: "I haven't fetched yet. Say 'check' and I'll grab it.",
                                   category: .answer)
         }
-        let text = ResponseTemplateRegistry.summarySentence(from: summary)
+        let text: String
+        switch ResponseTemplateRegistry.detectDomain(utterance) {
+        case .email:   text = ResponseTemplateRegistry.summaryEmailOnly(from: summary)
+        case .chat:    text = ResponseTemplateRegistry.summaryChatOnly(from: summary)
+        case .meeting: text = ResponseTemplateRegistry.summaryMeetingOnly(from: summary)
+        case .all:     text = ResponseTemplateRegistry.summarySentence(from: summary)
+        }
+        return SpokenResponse(text: text, category: .summary)
+    }
+
+    /// `.filter` is implicitly email-domain for Day 1. Resolved sender
+    /// wins (sender narrowing). Otherwise apply domain detection — the
+    /// classifier sometimes routes plain "how many emails" to `.filter`
+    /// rather than `.summary`, so the narrowing has to live on both
+    /// paths to be reliable.
+    private func filterResponse(utterance: String,
+                                resolvedSender: String?,
+                                context: DialogContext) -> SpokenResponse {
+        guard let summary = context.summary else {
+            return SpokenResponse(text: "I haven't fetched yet. Say 'check' and I'll grab it.",
+                                  category: .answer)
+        }
+        if let sender = resolvedSender {
+            let text = ResponseTemplateRegistry.summaryFilteredBySender(from: summary,
+                                                                        matching: sender)
+            return SpokenResponse(text: text, category: .summary)
+        }
+        let text: String
+        switch ResponseTemplateRegistry.detectDomain(utterance) {
+        case .email:   text = ResponseTemplateRegistry.summaryEmailOnly(from: summary)
+        case .chat:    text = ResponseTemplateRegistry.summaryChatOnly(from: summary)
+        case .meeting: text = ResponseTemplateRegistry.summaryMeetingOnly(from: summary)
+        case .all:     text = ResponseTemplateRegistry.summarySentence(from: summary)
+        }
         return SpokenResponse(text: text, category: .summary)
     }
 

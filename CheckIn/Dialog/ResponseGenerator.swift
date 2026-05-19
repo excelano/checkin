@@ -10,13 +10,19 @@ import Foundation
 /// (D18) and redirect (D19) pools, with the latency reassurance pool (D21)
 /// attached to `processing` substate transitions.
 protocol ResponseGenerator {
-    func generate(for intent: ClassifiedIntent, context: DialogContext) -> SpokenResponse
+    func generate(for intent: ClassifiedIntent,
+                  utterance: String,
+                  resolvedSender: String?,
+                  context: DialogContext) -> SpokenResponse
 }
 
 /// Deterministic stub for tests and previews. Fixed strings, no rotation.
 /// PERSONA.md-shaped output lands in Phase 3.
 struct StubResponseGenerator: ResponseGenerator {
-    func generate(for intent: ClassifiedIntent, context: DialogContext) -> SpokenResponse {
+    func generate(for intent: ClassifiedIntent,
+                  utterance: String,
+                  resolvedSender: String?,
+                  context: DialogContext) -> SpokenResponse {
         switch intent.intent {
         case .summary:
             return SpokenResponse(text: "Here is your stub summary.", category: .summary)

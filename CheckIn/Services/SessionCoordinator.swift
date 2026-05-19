@@ -212,8 +212,22 @@ final class SessionCoordinator {
                 #endif
             }
 
+            // Day 1 sender narrowing for .filter: pull the top person match
+            // out of the utterance and hand it to the generator. The matcher
+            // is the same one the coordinator uses for .open, so candidate
+            // sets stay consistent across intents.
+            let resolvedSender: String? = {
+                guard case .filter = classified.intent else { return nil }
+                let matches = entityMatcher.match(text: update.text,
+                                                  domain: .person,
+                                                  context: stateMachine.context)
+                return matches.first?.canonical
+            }()
+
             let baseResponse = responseGenerator.generate(
                 for: classified,
+                utterance: update.text,
+                resolvedSender: resolvedSender,
                 context: stateMachine.context
             )
 
