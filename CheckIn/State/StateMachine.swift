@@ -63,6 +63,14 @@ final class StateMachine {
     /// and on mode changes; defaults to tap-to-talk.
     var preferredRestState: RestState = .idle
 
+    /// Coordinator hooks the view layer calls when the user resolves or
+    /// cancels a disambiguation. The SwiftUI panel only has a reference to
+    /// the state machine, not the coordinator, so the coordinator wires
+    /// these on `start()` to route panel events back to its own logic
+    /// without a singleton or a back-pointer through the view tree.
+    @ObservationIgnored var onCandidateSelected: ((Candidate) -> Void)?
+    @ObservationIgnored var onDisambiguationCancelled: (() -> Void)?
+
     private func log(from: DialogState, to: DialogState) {
         #if DEBUG
         logger.debug("transition: \(String(describing: from)) -> \(String(describing: to))")

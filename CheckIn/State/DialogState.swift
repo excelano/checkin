@@ -81,6 +81,15 @@ struct Candidate: Identifiable, Equatable {
     }
 }
 
+/// Transient bundle the coordinator stashes on `DialogContext` while a
+/// disambiguation prompt is being spoken — the speaking-finish path reads
+/// it to know whether to land in `.disambiguating` instead of rest.
+struct PendingDisambiguation: Equatable {
+    let suspendedIntent: SuspendedIntent
+    let surface: String
+    let candidates: [Candidate]
+}
+
 /// A destructive or modifying action awaiting yes-or-no confirmation per D28.
 struct PendingAction: Equatable {
     let description: String

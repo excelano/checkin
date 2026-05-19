@@ -161,11 +161,8 @@ struct SummaryView: View {
             case .active(.disambiguating(let suspended, let candidates)):
                 DisambiguatingPanel(utterance: suspended.utterance,
                                     candidates: candidates,
-                                    onSelect: { _ in
-                                        // Phase 5 wires the resume path.
-                                        stateMachine.transition(to: .active(.processing(.thinking)))
-                                    },
-                                    onCancel: { stateMachine.transition(to: .active(restState())) })
+                                    onSelect: { stateMachine.onCandidateSelected?($0) },
+                                    onCancel: { stateMachine.onDisambiguationCancelled?() })
             case .active(.confirming(let action)):
                 ConfirmingPanel(action: action,
                                 onYes: { /* Phase 5 wires the executor */ },
@@ -242,7 +239,9 @@ struct SummaryView: View {
             // final transcript arrives shortly after as an isFinal update.
             stateMachine.transition(to: .active(.processing(.thinking)))
         case .active(.disambiguating):
-            stateMachine.transition(to: .active(restState()))
+            // Mic-tap during disambiguation = cancel (per 5.3b brief).
+            // Routes through the coordinator so pending state clears too.
+            stateMachine.onDisambiguationCancelled?()
         case .active(.speaking):
             // Barge-in per D8: TTSService.stop() lands with the speaking
             // wiring; for now the transition alone restarts listening.

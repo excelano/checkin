@@ -271,6 +271,28 @@ enum ResponseTemplateRegistry {
         return "I heard '\(heardSurface).' Did you mean \(joined)?"
     }
 
+    /// Spoken when a voice-resolution attempt in `.disambiguating` doesn't
+    /// match any candidate. Pairs the original prompt back so the user
+    /// hears the choices again without a separate retry phrasing.
+    static func disambiguationRetry(heardSurface: String,
+                                    candidates: [Candidate]) -> String {
+        "I didn't catch that one. \(disambiguationPrompt(heardSurface: heardSurface, candidates: candidates))"
+    }
+
+    /// Spoken on bail-out from disambiguation after two failed voice
+    /// attempts — short, terminal, no humor.
+    static let disambiguationExit: String = "OK, never mind."
+
+    // MARK: - Filter narrowing (5.3b)
+
+    /// Spoken when `.filter` fires with a "from <X>" surface that the
+    /// entity matcher can't tag to anyone in scope. Closes the silent
+    /// fall-through gap from 5.3d: the user named someone, so the system
+    /// names them back rather than answering as if no name was given.
+    static func filterUnknownSender(_ name: String) -> String {
+        "I don't have anyone called \(name) in your inbox."
+    }
+
     // MARK: - Routine acknowledgments
 
     static let stopAcknowledged: String = ""           // No spoken ack on stop; the silence is the answer.

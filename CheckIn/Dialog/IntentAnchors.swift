@@ -32,7 +32,11 @@ enum IntentAnchors {
             "what's my next meeting",
             "when's my next meeting",
             "what's coming up next",
-            "what's next on my calendar"
+            "what's next on my calendar",
+            "do i have any chats",
+            "any chats",
+            "what chats do i have",
+            "any teams messages"
         ]),
 
         (.filter, [

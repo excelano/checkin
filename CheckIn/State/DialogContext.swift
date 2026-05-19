@@ -28,6 +28,15 @@ struct DialogContext {
     /// is in `active.confirming`.
     var pendingConfirmation: PendingAction?
 
+    /// Disambiguation in flight per D7. The coordinator stashes this when a
+    /// `.filter` utterance resolves to multiple candidates; the speaking-
+    /// finish path consumes it to land in `.disambiguating` rather than rest.
+    var pendingDisambiguation: PendingDisambiguation?
+
+    /// Consecutive voice-resolution misses while in `.disambiguating`. Two
+    /// misses in a row bail out so the user doesn't get trapped in retries.
+    var disambiguationFailedAttempts: Int = 0
+
     /// Reprompt counter for repeat-after-no-input flows. Reset on a
     /// successful turn or on transition out of `listening`.
     var repromptCount: Int = 0
