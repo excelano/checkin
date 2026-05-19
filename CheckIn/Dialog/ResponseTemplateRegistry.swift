@@ -297,6 +297,35 @@ enum ResponseTemplateRegistry {
     /// summary instead of guessing which the user wanted.
     enum SummaryDomain { case email, chat, meeting, all }
 
+    /// Within a meeting-only response, what slice of the meeting the user
+    /// wants. `.what` is the default — "what's my next meeting" should
+    /// give subject plus time, not just time.
+    enum MeetingFocus { case what, who, when }
+
+    /// Keyword scan over the utterance to pick a meeting focus. Same
+    /// pattern as `detectDomain`. Multiple categories matching or none
+    /// matching defaults to `.what`, since the `.what` shape includes
+    /// the time anyway and "what's my next meeting" is the most natural
+    /// fallback question.
+    static func detectMeetingFocus(_ utterance: String) -> MeetingFocus {
+        let lower = utterance.lowercased()
+
+        let whoHits = ["who", "attendees", "with", "joining", "coming"]
+            .contains { lower.contains($0) }
+        let whatHits = ["what", "subject", "title", "name", "topic", "about", "agenda"]
+            .contains { lower.contains($0) }
+        let whenHits = ["when", "time", "what time", "at what time"]
+            .contains { lower.contains($0) }
+
+        let count = [whoHits, whatHits, whenHits].filter { $0 }.count
+        if count == 1 {
+            if whoHits { return .who }
+            if whatHits { return .what }
+            if whenHits { return .when }
+        }
+        return .what
+    }
+
     /// Keyword scan over the utterance. "message"/"messages" routes to
     /// email — that's the dominant register in M365 voice queries, and
     /// the user can disambiguate with "chats" or "teams" when they mean
@@ -380,11 +409,38 @@ enum ResponseTemplateRegistry {
         }
     }
 
-    static func summaryMeetingOnly(from summary: CheckInSummary) -> String {
+    static func summaryMeetingOnly(from summary: CheckInSummary,
+                                   utterance: String) -> String {
         if let meeting = summary.meeting {
-            return meetingPhrase(meeting)
+            return meetingDetailed(meeting: meeting,
+                                   focus: detectMeetingFocus(utterance))
         }
         return "Nothing on your calendar coming up."
+    }
+
+    /// Focused meeting phrasing for the meeting-only response path. Time
+    /// is always present (it's the anchor the user expects); subject and
+    /// attendees come in based on focus.
+    static func meetingDetailed(meeting: Meeting, focus: MeetingFocus) -> String {
+        let base = meetingTimePhrase(meeting)
+        switch focus {
+        case .when:
+            return "\(base)."
+        case .what:
+            if meeting.subject.isEmpty { return "\(base)." }
+            return "\(base), \(meeting.subject)."
+        case .who:
+            switch meeting.attendees.count {
+            case 0:
+                return "\(base), no other attendees listed."
+            case 1:
+                return "\(base), with \(meeting.attendees[0])."
+            case 2:
+                return "\(base), with \(meeting.attendees[0]) and \(meeting.attendees[1])."
+            case let n:
+                return "\(base), with \(meeting.attendees[0]) and \(spellCount(n - 1)) others."
+            }
+        }
     }
 
     /// Narrow the email list to one sender and read the count back with
@@ -405,7 +461,18 @@ enum ResponseTemplateRegistry {
         }
     }
 
+    /// The embedded meeting clause for the full three-part summary. Adds
+    /// the subject as a tight tail when present so "what's on my plate"
+    /// gets time + subject without inflating to a separate sentence.
     private static func meetingPhrase(_ meeting: Meeting) -> String {
+        let base = meetingTimePhrase(meeting)
+        if meeting.subject.isEmpty { return "\(base)." }
+        return "\(base), \(meeting.subject)."
+    }
+
+    /// The time portion only, sentence-fragment shape (no trailing
+    /// period) so the caller can append a tail clause or a period.
+    private static func meetingTimePhrase(_ meeting: Meeting) -> String {
         let now = Date()
         let interval = meeting.start.timeIntervalSince(now)
         let formatter = DateFormatter()
@@ -413,14 +480,14 @@ enum ResponseTemplateRegistry {
         formatter.timeStyle = .short
         let timeString = formatter.string(from: meeting.start)
         if interval < 0 {
-            return "Your meeting started already."
+            return "Your meeting started already"
         } else if interval < 5 * 60 {
-            return "Your next meeting starts in a few minutes."
+            return "Your next meeting starts in a few minutes"
         } else if interval < 60 * 60 {
             let minutes = Int(interval / 60)
-            return "Next meeting in \(minutes) minutes."
+            return "Next meeting in \(minutes) minutes"
         } else {
-            return "Next meeting at \(timeString)."
+            return "Next meeting at \(timeString)"
         }
     }
 

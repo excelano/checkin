@@ -13,4 +13,5 @@ struct Meeting: Identifiable {
     let start: Date
     let end: Date
     let isOnline: Bool
+    let attendees: [String]
 }

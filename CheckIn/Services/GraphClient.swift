@@ -40,7 +40,7 @@ final class GraphClient {
             "endDateTime": formatter.string(from: end),
             "$top": "1",
             "$orderby": "start/dateTime",
-            "$select": "subject,organizer,location,start,end,isOnlineMeeting"
+            "$select": "subject,organizer,location,start,end,isOnlineMeeting,attendees"
         ])
 
         guard let event = data.value.first else { return nil }
@@ -48,13 +48,20 @@ final class GraphClient {
         let start = parseGraphDate(event.start.dateTime, timeZone: event.start.timeZone)
         let meetingEnd = parseGraphDate(event.end.dateTime, timeZone: event.end.timeZone)
 
+        let organizerName = event.organizer.emailAddress.name
+        let attendees = event.attendees
+            .filter { $0.type == "required" }
+            .map { $0.emailAddress.name }
+            .filter { !$0.isEmpty && $0 != organizerName }
+
         return Meeting(
             subject: event.subject,
-            organizer: event.organizer.emailAddress.name,
+            organizer: organizerName,
             location: event.location.displayName,
             start: start,
             end: meetingEnd,
-            isOnline: event.isOnlineMeeting
+            isOnline: event.isOnlineMeeting,
+            attendees: attendees
         )
     }
 
@@ -303,9 +310,15 @@ private struct CalendarEventResponse: Decodable {
     let start: DateTimeResponse
     let end: DateTimeResponse
     let isOnlineMeeting: Bool
+    let attendees: [AttendeeResponse]
 }
 
 private struct OrganizerResponse: Decodable {
+    let emailAddress: EmailAddressResponse
+}
+
+private struct AttendeeResponse: Decodable {
+    let type: String
     let emailAddress: EmailAddressResponse
 }
 

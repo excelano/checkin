@@ -93,7 +93,7 @@ struct PersonaResponseGenerator: ResponseGenerator {
         switch ResponseTemplateRegistry.detectDomain(utterance) {
         case .email:   text = ResponseTemplateRegistry.summaryEmailOnly(from: summary)
         case .chat:    text = ResponseTemplateRegistry.summaryChatOnly(from: summary)
-        case .meeting: text = ResponseTemplateRegistry.summaryMeetingOnly(from: summary)
+        case .meeting: text = ResponseTemplateRegistry.summaryMeetingOnly(from: summary, utterance: utterance)
         case .all:     text = ResponseTemplateRegistry.summarySentence(from: summary)
         }
         return SpokenResponse(text: text, category: .summary)
@@ -120,7 +120,7 @@ struct PersonaResponseGenerator: ResponseGenerator {
         switch ResponseTemplateRegistry.detectDomain(utterance) {
         case .email:   text = ResponseTemplateRegistry.summaryEmailOnly(from: summary)
         case .chat:    text = ResponseTemplateRegistry.summaryChatOnly(from: summary)
-        case .meeting: text = ResponseTemplateRegistry.summaryMeetingOnly(from: summary)
+        case .meeting: text = ResponseTemplateRegistry.summaryMeetingOnly(from: summary, utterance: utterance)
         case .all:     text = ResponseTemplateRegistry.summarySentence(from: summary)
         }
         return SpokenResponse(text: text, category: .summary)
