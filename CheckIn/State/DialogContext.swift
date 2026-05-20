@@ -24,10 +24,6 @@ struct DialogContext {
     /// response and burns memory.
     var turnHistory: [Turn] = []
 
-    /// Action awaiting confirmation. When non-nil the state machine
-    /// is in `active.confirming`.
-    var pendingConfirmation: PendingAction?
-
     /// Disambiguation in flight. The coordinator stashes this when a
     /// `.filter` utterance resolves to multiple candidates; the speaking-
     /// finish path consumes it to land in `.disambiguating` rather than rest.

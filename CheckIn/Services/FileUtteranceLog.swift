@@ -136,7 +136,6 @@ private func encodeCategory(_ category: ResponseCategory) -> String {
     case .refusal: return "refusal"
     case .redirect: return "redirect"
     case .disambiguation: return "disambiguation"
-    case .confirmation: return "confirmation"
     case .error: return "error"
     case .help: return "help"
     case .latencyReassurance: return "latencyReassurance"

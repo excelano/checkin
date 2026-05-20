@@ -49,7 +49,7 @@ struct StubResponseGenerator: ResponseGenerator {
         case .settings:
             return SpokenResponse(text: "", category: .answer)
         case .yes:
-            return SpokenResponse(text: "Confirmed, stub.", category: .confirmation)
+            return SpokenResponse(text: "Confirmed, stub.", category: .answer)
         case .no:
             return SpokenResponse(text: "Cancelled, stub.", category: .answer)
         case .ordinalSelection:

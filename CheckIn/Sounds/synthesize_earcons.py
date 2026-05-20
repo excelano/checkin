@@ -4,12 +4,11 @@
 # Author: David M. Anderson
 # Built with AI assistance (Claude, Anthropic)
 #
-# Generates three short earcons used by the state machine:
+# Generates the short earcons used by the state machine:
 #   listening.wav     entry to active.listening      (rising glide, 200 ms)
 #   thinking.wav      entry to active.processing     (soft pulse, 120 ms)
-#   confirmation.wav  entry to active.confirming     (descending two-tone, 300 ms)
 #
-# All three are 44.1 kHz mono 16-bit PCM. They use a cosine-window envelope
+# All are 44.1 kHz mono 16-bit PCM. They use a cosine-window envelope
 # so attack and release are click-free, and they sit at modest amplitude so
 # they don't fight with TTS or system audio.
 #
@@ -68,27 +67,10 @@ def thinking() -> list[float]:
     return samples
 
 
-def confirmation() -> list[float]:
-    """Descending two-tone: 880 Hz for 150 ms, then 660 Hz for 150 ms.
-    The descent reads as 'decision pending' rather than 'all clear.'"""
-    note_dur = 0.150
-    n_each = int(SAMPLE_RATE * note_dur)
-    env = envelope(n_each)
-    samples = []
-    for i in range(n_each):
-        t = i / SAMPLE_RATE
-        samples.append(0.45 * env[i] * math.sin(2 * math.pi * 880 * t))
-    for i in range(n_each):
-        t = i / SAMPLE_RATE
-        samples.append(0.45 * env[i] * math.sin(2 * math.pi * 660 * t))
-    return samples
-
-
 def main() -> None:
     write_wav(HERE / "listening.wav", listening())
     write_wav(HERE / "thinking.wav", thinking())
-    write_wav(HERE / "confirmation.wav", confirmation())
-    for name in ("listening.wav", "thinking.wav", "confirmation.wav"):
+    for name in ("listening.wav", "thinking.wav"):
         path = HERE / name
         with wave.open(str(path), "rb") as w:
             frames = w.getnframes()

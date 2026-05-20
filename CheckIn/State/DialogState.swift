@@ -23,15 +23,14 @@ enum OnboardingSubstate: Equatable {
 
 /// Operational substates the user spends nearly all their time in.
 /// Several substates carry payload via associated values: the suspended
-/// intent during disambiguation, the pending action during confirmation,
-/// the rest state to return to from help and settings sheets.
+/// intent during disambiguation, the rest state to return to from help
+/// and settings sheets.
 enum ActiveSubstate: Equatable {
     case idle
     case listening
     case processing(ProcessingPhase)
     case speaking(response: SpokenResponse, returnTo: RestState)
     case disambiguating(suspendedIntent: SuspendedIntent, candidates: [Candidate])
-    case confirming(pendingAction: PendingAction)
     case helpDisplayed(returnTo: RestState)
     case settingsDisplayed(returnTo: RestState)
 }
@@ -86,24 +85,6 @@ struct PendingDisambiguation: Equatable {
     let candidates: [Candidate]
 }
 
-/// A destructive or modifying action awaiting yes-or-no confirmation.
-struct PendingAction: Equatable {
-    let description: String
-    let kind: ActionKind
-    let target: String
-}
-
-/// The destructive or modifying actions CheckIn supports. Launch ships
-/// none of these — they're deferred (see `~/notes/BACKLOG.md`).
-enum ActionKind: Equatable {
-    case markEmailRead
-    case flagEmail
-    case softDeleteEmail
-    case markAllEmailsRead
-    case flagAllEmails
-    case softDeleteAllEmails
-}
-
 /// A response packaged for TTS playback and on-screen captioning.
 /// `category` lets the speaking layer pick the right voice tempo, the
 /// dialog layer suppress repeats, and the persona layer apply the right tone.
@@ -121,7 +102,6 @@ enum ResponseCategory: Equatable {
     case refusal
     case redirect
     case disambiguation
-    case confirmation
     case error
     case help
     case latencyReassurance

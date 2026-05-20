@@ -222,43 +222,6 @@ enum ResponseTemplateRegistry {
         "Try: anything new since this morning?"
     ]
 
-    // MARK: - Confirmations and announcements
-    //
-    // Confirmation prompts are templated by ActionKind and parameters.
-    // The "yes" path announces brief success; the "no" path acknowledges
-    // and returns. Phrasings stay plain — confirmations are the wrong
-    // place for humor.
-
-    static func confirmationPrompt(for action: PendingAction) -> String {
-        switch action.kind {
-        case .markEmailRead:
-            return "Mark \(action.target)'s email as read?"
-        case .flagEmail:
-            return "Flag \(action.target)'s email?"
-        case .softDeleteEmail:
-            return "Move \(action.target)'s email to Deleted Items?"
-        case .markAllEmailsRead:
-            return "Mark all emails from \(action.target) as read?"
-        case .flagAllEmails:
-            return "Flag all emails from \(action.target)?"
-        case .softDeleteAllEmails:
-            return "Move all emails from \(action.target) to Deleted Items?"
-        }
-    }
-
-    static func successAnnouncement(for action: PendingAction) -> String {
-        switch action.kind {
-        case .markEmailRead, .markAllEmailsRead:
-            return "Marked."
-        case .flagEmail, .flagAllEmails:
-            return "Flagged."
-        case .softDeleteEmail, .softDeleteAllEmails:
-            return "Moved to Deleted Items."
-        }
-    }
-
-    static let confirmationCancel: String = "OK, leaving them."
-
     // MARK: - Disambiguation
     //
     // Question-led: state the ambiguity, ask which one, then enumerate.

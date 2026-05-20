@@ -61,7 +61,7 @@ TTS is playing the response.
 **Visible UI.** The summary plus on-screen captioning of the spoken text.
 **Audio.** TTS via `AVSpeechSynthesizer` with delegate callbacks tracking position for barge-in.
 **Touch actions.** Tap mic triggers barge-in (TTS stops at word boundary, advances to `active.listening`). Tap stop ends TTS silently and returns to rest. Tap a summary row deep-links.
-**Transitions.** On TTS completion in tap-to-talk, advances to `active.idle`. In conversation mode, advances to `active.listening`. Some response types (disambiguation prompts, confirmation prompts) advance to `active.disambiguating` or `active.confirming` after TTS completes.
+**Transitions.** On TTS completion in tap-to-talk, advances to `active.idle`. In conversation mode, advances to `active.listening`. Disambiguation prompts advance to `active.disambiguating` after TTS completes.
 
 ### `active.disambiguating`
 
@@ -72,16 +72,6 @@ The system has presented an enumerated list of candidates and is waiting for sel
 **Touch actions.** Tap a candidate selects it. Tap cancel exits to rest.
 **Dialog context.** Carries the candidate list and the suspended intent.
 **Transitions.** On selection, advances to `active.processing` with the chosen candidate substituted for the ambiguous reference. On cancel or timeout, returns to rest with the suspended intent discarded.
-
-### `active.confirming`
-
-The system is awaiting a yes or no for a destructive or modifying action.
-
-**Visible UI.** The action and its parameters spelled out, a listening indicator, and a confirmation earcon distinct from listening.
-**Voice action.** Listen for yes, no, or related variants.
-**Touch actions.** Tap "yes" or "no". Tap cancel exits to rest.
-**Dialog context.** Carries the pending action.
-**Transitions.** Yes advances to `active.processing` (executes the action). No returns to rest with the action discarded. Timeout (around eight seconds) returns to rest with no action taken.
 
 ### `active.helpDisplayed`
 
@@ -109,7 +99,7 @@ Help is reachable from any `active` substate via the help intent or the visible 
 
 Silent-respect is the policy: when the user has the hardware silent switch on, the app stays silent (like Mail or Calendar, not Music). Recording-capable categories bypass silent by iOS design, so the session toggles per phase.
 
-- `.playAndRecord` with `.spokenAudio` mode in `listening`, `disambiguating`, and `confirming` (mic is hot for recognition or selection).
+- `.playAndRecord` with `.spokenAudio` mode in `listening` and `disambiguating` (mic is hot for recognition or selection).
 - `.soloAmbient` in `speaking` so TTS honors silent.
 - `.processing` is a brief transition and inherits whichever category preceded it.
 - Session is deactivated in `idle`, `helpDisplayed`, and `settingsDisplayed`.
@@ -118,4 +108,4 @@ The `AVSpeechSynthesizer` instance is recreated per utterance so a category tran
 
 ## Earcons
 
-Earcons are tied to entry transitions. A listening earcon plays on `active.listening` entry, a thinking earcon plays on `active.processing` entry, and a confirmation earcon plays on `active.confirming` entry.
+Earcons are tied to entry transitions. A listening earcon plays on `active.listening` entry, and a thinking earcon plays on `active.processing` entry.

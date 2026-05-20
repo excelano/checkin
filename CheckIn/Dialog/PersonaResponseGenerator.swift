@@ -74,10 +74,8 @@ struct PersonaResponseGenerator: ResponseGenerator {
                                   category: .answer)
 
         case .yes, .no, .ordinalSelection:
-            // Yes/no/ordinal flow inside disambiguating or confirming
-            // states; the state machine resolves them and produces the
-            // resulting summary / success / cancel spoken response. The
-            // raw classification itself doesn't generate spoken output.
+            // Resolved by the dialog layer inside disambiguating; the
+            // raw classification doesn't generate spoken output.
             return SpokenResponse(text: "", category: .answer)
 
         case .inScopeUnsupported(let kind):

@@ -165,10 +165,6 @@ struct SummaryView: View {
                     ThinkingIndicator()
                 case .active(.speaking(let response, _)):
                     CaptioningView(text: response.text)
-                case .active(.confirming(let action)):
-                    ConfirmingPanel(action: action,
-                                    onYes: { },
-                                    onNo: { stateMachine.transition(to: .active(restState())) })
                 default:
                     EmptyView()
                 }
@@ -196,7 +192,7 @@ struct SummaryView: View {
 
     private var micSymbol: String {
         switch stateMachine.currentState {
-        case .active(.listening), .active(.disambiguating), .active(.confirming):
+        case .active(.listening), .active(.disambiguating):
             return "stop.fill"
         case .active(.speaking):
             return "stop.fill"
@@ -506,38 +502,3 @@ private struct DisambiguatingPanel: View {
     }
 }
 
-private struct ConfirmingPanel: View {
-    let action: PendingAction
-    let onYes: () -> Void
-    let onNo: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text(action.description)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-            HStack(spacing: 12) {
-                Button(action: onNo) {
-                    Text("No")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Brand.bgDarker)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                Button(action: onYes) {
-                    Text("Yes")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Brand.accent)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-            }
-        }
-        .padding(14)
-        .background(Brand.bgDarker)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}

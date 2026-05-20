@@ -220,7 +220,6 @@ private func parseISO8601(_ dateString: String) -> Date? {
 // MARK: - Graph Date Parsing
 
 /// Graph API returns datetimes as a naive string plus a separate timezone string.
-/// This mirrors the Go CLI's time.ParseInLocation approach.
 private func parseGraphDate(_ dateString: String, timeZone: String) -> Date {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSS"
@@ -307,10 +306,6 @@ private struct EmailFromResponse: Decodable {
     let emailAddress: EmailAddressResponse
 }
 
-private struct EmailBodyResponse: Decodable {
-    let body: BodyContentResponse
-}
-
 private struct BodyContentResponse: Decodable {
     let contentType: String
     let content: String
@@ -337,20 +332,5 @@ private struct ChatFromResponse: Decodable {
 
 private struct ChatUserResponse: Decodable {
     let id: String
-    let displayName: String
-}
-
-private struct ChatMessageResponse: Decodable {
-    let body: BodyContentResponse
-    let from: ChatMessageFromResponse?
-    let createdDateTime: String
-    let messageType: String
-}
-
-private struct ChatMessageFromResponse: Decodable {
-    let user: ChatMessageUserResponse?
-}
-
-private struct ChatMessageUserResponse: Decodable {
     let displayName: String
 }

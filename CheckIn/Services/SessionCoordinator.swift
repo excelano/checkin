@@ -142,8 +142,7 @@ final class SessionCoordinator {
         switch (event.from, event.to) {
         case (.active(.idle), .active(.listening)),
              (.active(.speaking), .active(.listening)),
-             (.active(.disambiguating), .active(.listening)),
-             (.active(.confirming), .active(.listening)):
+             (.active(.disambiguating), .active(.listening)):
             await beginListening()
         case (.active(.speaking), .active(.disambiguating)):
             // Auto-listen for the disambig answer in conversation mode.
@@ -178,8 +177,8 @@ final class SessionCoordinator {
         }
 
         // Audio session deactivates on entry to rest-without-mic states.
-        // Speaking, listening, disambiguating, confirming, and processing
-        // all hold an active session; idle/help/settings release it.
+        // Speaking, listening, disambiguating, and processing all hold an
+        // active session; idle/help/settings release it.
         switch event.to {
         case .active(.idle), .active(.helpDisplayed), .active(.settingsDisplayed):
             audioController.configure(for: .inactive)
@@ -213,15 +212,12 @@ final class SessionCoordinator {
         // processing(.speakingPlaceholder) is one processing visit, not
         // two). Routed through the audio controller so each plays under
         // the phase's category — silent during speaking, bypassed during
-        // listening/confirming/disambiguating. Fire-and-forget.
+        // listening/disambiguating. Fire-and-forget.
         if isListening(event.to) && !isListening(event.from) {
             audioController.play(.listening)
         }
         if isProcessing(event.to) && !isProcessing(event.from) {
             audioController.play(.thinking)
-        }
-        if isConfirming(event.to) && !isConfirming(event.from) {
-            audioController.play(.confirmation)
         }
     }
 
@@ -240,11 +236,6 @@ final class SessionCoordinator {
 
     private func isProcessing(_ state: DialogState) -> Bool {
         if case .active(.processing) = state { return true }
-        return false
-    }
-
-    private func isConfirming(_ state: DialogState) -> Bool {
-        if case .active(.confirming) = state { return true }
         return false
     }
 

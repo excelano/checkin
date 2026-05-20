@@ -21,7 +21,7 @@ import os
 ///
 /// Earcons play through `play(_:)` so they fire under whichever category is
 /// active for the current phase. That respects silent during speaking
-/// (`.soloAmbient`) and bypasses it during listening/disambiguating/confirming
+/// (`.soloAmbient`) and bypasses it during listening/disambiguating
 /// (`.playAndRecord` — recording-capable categories all bypass by iOS design).
 @MainActor
 final class AudioSessionController {
