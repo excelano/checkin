@@ -1,163 +1,103 @@
-# CheckIn: Go-Forward Plan
+# CheckIn: Plan
 
-Updated 2026-05-07.
+Updated 2026-05-20.
 
 ## Status
 
-**iOS app:** Fresh build. The earlier voice-prototype iteration lives at the archived `excelano/checkin-voice` repo. The keepers (MSAL auth wrapper, Microsoft Graph data layer, models, brand, utilities) carry over to this repo; the architectural skeleton is built fresh in Phase 2 to match `STATES.md`.
+Phases 1-4 and sub-phases 5.0 through 5.3e are committed (current `main` at `e36bcaa`). The voice loop, intent routing, disambiguation, Graph fetch, deep-link routing, and dialog-stack cleanup all work on device. Remaining work to TestFlight is consolidated into six phases below.
 
-**Web prototype:** Out of scope. Lives at the archived `excelano/checkin-web-prototype` repo.
+The earlier per-slice plan (5.3f through 5.5) is superseded by this document.
 
-**Apple Developer enrollment:** Submitted 2026-05-06 with corrected D&B profile. Awaiting Apple verification email (1-5 business days). Once approved, TestFlight distribution becomes available.
+## Goal
 
-**App icon:** Custom CheckIn icon (single bold teal check on navy) lives in `CheckIn/Assets.xcassets/AppIcon.appiconset/`. Wired in once the Xcode project is created.
+Ship a complete-feeling, voice-first M365 status panel. Read-and-navigate scope: anything that modifies M365 data routes the user to Outlook or Teams.
 
-## Architecture (per DESIGN.md)
+Mutations (mark-as-read, flag, soft-delete, bulk operations) defer to v2. Splitting on the read/write line, not D29's single/bulk line, because mutation features share the confirmation infrastructure (D28) and ship more coherently together once v1 is in real use.
 
-The design audit (`DESIGN.md`, 33 decisions captured) sets the architecture. Highlights that shape this plan:
+## Phases
 
-- **Single screen, deep-link** (D27). The app has one main screen showing the at-a-glance summary. Tap any item to deep-link to Outlook or Teams. No detail views, no reply flow, no email body display.
-- **Voice as state machine** (D1, D33). Hierarchical states (`signedOut`, `onboarding`, `active`) with eight `active` substates; explicit transitions, dialog context, persona-shaped responses. See `STATES.md`.
-- **Classical NLP, not LLM** (D14). `NLEmbedding` for semantic similarity, `NLTagger` for entity recognition, custom intent classifier behind a protocol. Foundation Models on the long-term backlog.
-- **Privacy non-negotiable** (D9, D24). On-device speech recognition only, zero telemetry, zero analytics, zero data sharing with anyone except the user's own M365 service. M365 data never persisted to disk.
-- **Augments not replaces** (D27). CheckIn is a voice-first M365 status panel; Outlook and Teams remain the apps for reading bodies, composing replies, and joining meetings.
-- **Persona** (D32). Calm, capable, brief; warm without familiarity; first-person singular; light dry humor only on refusals and redirects. See `PERSONA.md`.
-- **Multi-modal accessibility** (D22). Full core experience reachable without voice; voice-only conveniences (bulk operations, quick queries) need not have touch counterparts.
-- **Self-hostable** (D25, D26). Custom Azure App Registration via Settings > Advanced, plus full fork-and-rebuild path documented in `SELF-HOSTING.md`.
+Each phase is one commit (or a small set of related commits) with on-device verification before moving on. No mid-phase scope expansion — anything that surfaces goes to `~/notes/BACKLOG.md` and is addressed after the current phase.
 
-## Iceberg scope (per D12 and D29)
+### Phase A — Audio architecture
 
-The voice surface ships in three tiers. Day 1 ships first; Day 2 and Day 3 are the roadmap.
+Replace the ad-hoc audio session lifecycle with a deliberate design.
 
-**Day 1 (above the waterline).** Summary spoken on demand with optional sender/topic filter; refresh; stop and repeat; help; voice-driven open of summary items via deep-link to Outlook or Teams; sign-in; settings; conversation mode entry and exit. D18 out-of-scope refusals and D19 in-scope-unsupported redirects handle anything else. The full set of foundational decisions (D1 through D33) is in place.
+- New `AudioSessionController` owns category transitions and serializes them with TTS state.
+- `AVSpeechSynthesizer` becomes a per-utterance instance (synth recreation pattern). A category swap can't wedge an in-flight synth.
+- Earcons routed through the controller so silent-respect applies to them (closes the F15 carry-forward).
+- D8 and D33 in `DESIGN.md` updated to reflect silent-respect-throughout policy. `STATES.md` audio session section updated.
 
-**Day 2 (next release after launch).** Quick queries with terse response (counts, times). Mark single email as read. Flag single email. Reply by voice via Outlook deep-link in reply mode.
+Closes the F2 interrupt cliff, the F15 earcons-silent gap, and the drift between spec and code.
 
-**Day 3 (subsequent release).** Soft-delete single email with confirmation per D28. Bulk operations (mark-all-read, flag-all, delete-all, with the "except the latest" modifier and count confirmation). Join meeting by voice via Teams deep-link.
+### Phase B — Entity matcher rework
 
-This plan focuses on shipping Day 1.
+`NLTaggerEntityMatcher.matchAgainstKnown` reworked to longest-canonical-substring matching against the lowercased utterance. The current single-token check over-fires on "Microsoft" by surfacing every Microsoft-prefix candidate. Plus ordinal+sender composition for `.open` so "open the latest email from Tony" picks the right message.
 
-## Day 1 build sequence
+Closes F10 (over-fire) and F11 (compositional `.open`).
 
-Each phase is testable in isolation; later phases depend on earlier ones.
+### Phase C — New read/navigate intents
 
-### Phase 1: Project scaffolding and design artifacts
+Three additions to round out the read-and-navigate surface.
 
-- `DESIGN.md`, `PERSONA.md`, `STATES.md`, `CAPABILITIES.md` finalized at the repo root.
-- `PRIVACY.md` describing the privacy posture from D9, D11, and D24.
-- `SELF-HOSTING.md` per D26.
-- `README.md` describing the project as a voice-first M365 status panel that augments Outlook and Teams.
-- App icon assets ready under `CheckIn/Assets.xcassets/`.
-- New Xcode project created on Mac with bundle ID `com.excelano.checkin` and the URL schemes from `Info.plist`. Keeper Swift files added to the project.
+- **Reply by voice.** New intent, anchors, template. Deep-links to Outlook in reply mode; composition happens in Outlook.
+- **Join meeting.** Add `joinUrl: String?` to the `Meeting` model. Extend Graph `$select` to fetch `onlineMeeting.joinUrl`. Route through `DeepLinkService.passthrough` when present, otherwise fall through to Outlook calendar. F6 falls out.
+- **Time queries.** "When's my next meeting", "how long until my next meeting", relative phrasing per D29. New intent class + templates.
 
-### Phase 2: Architecture build
+Also lands the F12 immediate-render disambig panel binding (already in the working tree) and F7 chat anchor coverage.
 
-Architecture is built fresh per `STATES.md`. Keeper code (auth, Graph data layer, models, brand, utilities) carries over from the archived repo and stays untouched.
+### Phase D — Conversation mode
 
-- `DialogState` Swift enum with associated values (suspended intent in `disambiguating`, pending action in `confirming`, recent context in `helpDisplayed`).
-- `DialogContext` struct (focused entity, summary slots, last utterance, last system response, recent turn history, pending confirmations, reprompt counter, recent refusal and redirect phrasings).
-- `StateMachine` class with `currentState` and `transition(to:)`; debug-only logging.
-- `IntentClassifier`, `EntityMatcher`, `ResponseGenerator` protocols (per D15) with deterministic stubs for tests.
-- `DeepLinkService` constructing URLs for Outlook (open inbox, message, calendar event; reply mode) and Teams (open chat; join meeting). `LSApplicationQueriesSchemes` declares `ms-outlook` and `msteams`.
-- `SpeechService`: `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true` (D9), VAD on the audio engine input tap, `contextualStrings` for proper-noun biasing, `AVAudioSession` configured `.playAndRecord` + `.voiceChat` for echo cancellation per D8 barge-in.
-- `TTSService`: `AVSpeechSynthesizer` with locale-matched voice default, delegate callbacks for barge-in tracking, response template registry for persona-shaped output.
-- Audio assets: three earcons (listening, thinking, confirmation) per D13 and D33, each under 500 ms.
+- Auto-finalization wire: `SFSpeechRecognizer`'s natural `isFinal` drives `.listening → .processing → .speaking` so hands-free turn-taking works without a mic tap. (Was 5.4a.)
+- Voice-disambig auto-listen: gate entry to `.disambiguating` on `preferredRestState == .listening` so `handleDisambiguationUtterance` goes live in conversation mode. (Was 5.4c.)
+- Listening Mode toggle becomes functional.
+- Voice barge-in dropped from v1 per the silent-switch policy decision. Touch barge-in (tap-mic-during-TTS) stays. D8 in `DESIGN.md` updated.
 
-### Phase 3: Day 1 voice intelligence
+### Phase E — Accessibility and persona
 
-- Day 1 intent classifier: summary, filter-by-name, refresh, repeat, stop, help, open (with entity), exit, settings.
-- Real `NLEmbedding`-based intent classifier behind the protocol from D15.
-- Real `NLTagger`-based entity matcher with `contextualStrings` priming and contact-list source-of-truth.
-- Day 1 response template registry: summary phrasings, refusal pool (D18), redirect pool (D19), help short and long variants (D30), error pools per category (D21), onboarding invitations (D31). All reviewed against `PERSONA.md`.
-- Custom language model from D10 implemented as opt-in but disabled by default (Settings only). Day 1 uses `contextualStrings` plus fuzzy matching.
+- VoiceOver labels on every interactive element.
+- Dynamic Type tested at the largest accessibility size.
+- Reduced motion variants for `ListeningIndicator` and `ThinkingIndicator`.
+- Persona drift sweep across `ResponseTemplateRegistry` against `PERSONA.md`.
 
-### Phase 4: User-visible UI
+### Phase F — Pre-TestFlight gate
 
-- `ContentView` (auth gate per D33).
-- `SummaryView` (the only main screen per D27).
-- `HelpView` sheet per D30 (multimodal, structured, contextual).
-- `SettingsView` sheet (Voice section per D5; Listening Mode per D17; Voice Recognition Tuning per D10; Advanced per D25).
-- `OnboardingFlow` sequence per D31 (welcome, permissions, mode, first query).
-- Listening indicator, thinking indicator, captioning view per D22.
-- VoiceOver labels and Dynamic Type on every interactive element per D22.
-- Reduced-motion variants per D22.
+- `Info.plist` permission strings reviewed.
+- Privacy posture verification: no `URLSession` outside Microsoft Graph and Microsoft identity endpoints; no analytics SDKs anywhere in the dependency graph.
+- App Store Connect "Data Not Collected" prep.
+- Final smoke test on device.
 
-### Phase 5: Integration and on-device verification
+## Out of scope for v1
 
-Phase 5 is sliced into named sub-phases (5.0, 5.1, …) so commit messages and handoff notes can reference them stably. Each slice is self-contained at its boundary, fits a single execution session, and has explicit done-criteria. Slices are executed via the Mac-Claude / Debian-Claude handoff workflow tracked in `~/mac/notes/` (offline of this repo).
+- Mutations: mark-as-read, flag, soft-delete, bulk operations. Bundled in v2.
+- Voice barge-in (auto-cut on detected user speech mid-TTS). Bundled in a future release after v1 production exposure.
+- Custom Language Model (D10). The off-state path with `contextualStrings` plus the matcher rework is sufficient for v1; opt-in LM lands when there's a real recognition-precision gap to close.
 
-The five-bullet sketch in the original Phase 5 — wire state machine to UI, end-to-end voice flow on simulator, on-device test loop, cross-state behavior, privacy audit — is the work; the slices below give it shape.
+## v2
 
-**5.0 — TTS wired. (Done, commit `3c5fc52`, 2026-05-15.)** `AppleTTSService` replaced its `fatalError` stubs with a real `AVSpeechSynthesizer` backed by an `AsyncStream<TTSEvent>` (started, wordBoundary, paused, resumed, finished, cancelled). `SessionCoordinator` consumes the events, transitions through `.speaking`, returns to the configured rest state. Tap-to-talk verified end-to-end on iPhone 15. Word-boundary callbacks land for the future D8 hook.
+Write-and-mutate features per D29:
 
-**5.1 — Audio pipeline finish.** Three coordinated changes that close out the audio side of the voice loop.
+- Mark single email as read (`PATCH /me/messages/{id}`) with persona ack.
+- Flag single email (`PATCH /me/messages/{id}/flag`).
+- Soft-delete single email with D28 confirmation.
+- Bulk operations (`mark-all`, `flag-all`, `delete-all`) with count confirmation and the "except the latest" modifier.
 
-- *Silent-by-design intent handling.* `SessionCoordinator.handle(_ update:)` checks `response.text.isEmpty` before transitioning to `.speaking` and routes straight to the rest state if empty. Covers `.stop` (intentionally empty per `ResponseTemplateRegistry.stopAcknowledged`) and any future silent intent as a category, not a one-off.
-- *Voice and rate Settings wiring.* `SettingsView`'s `voiceIdentifier` and `speechRate` (`@AppStorage`-backed) are read by `AppleTTSService.speak(_:)` and applied to each `AVSpeechUtterance`. Live-update is a choice; reading at speak-time is fine.
-- *Earcons.* The three audio assets from Phase 2 (listening, thinking, confirmation per D13 and D33, each under 500 ms) fire at the matching state-machine transitions via a small `EarconService` behind a protocol. Earcons share the existing `.playAndRecord/.voiceChat` audio session without fighting the synthesizer.
-
-Done when: `.stop` no longer strands the state machine; voice picker has an audible effect when changed; the three earcons play cleanly at their transitions without clipping the synthesizer.
-
-**5.2 — Real Graph fetch.** Single biggest user-visible delta. Today every response is the hardcoded "I haven't fetched yet" fallback. The keeper `GraphClient` (carried over from the archived voice repo, untouched since) is wired into the response path: next meeting, unread email count, pending Teams chats. `.summary` answers with real numbers; `.filter` answers with real sender or topic matches; `.refresh` re-fetches.
-
-Done when: a cold-launch summary on David's iPhone 15 returns real data from his M365 tenant; refresh re-fetches without re-auth; privacy posture verified (no `URLSession` traffic outside Microsoft Graph and identity endpoints, M365 data not persisted to disk per D9 and D24).
-
-**5.3 — Intent plumbing.** Fills out the remaining Day 1 intent surface. Sliced at execution time into five sub-phases, executed in the order shown below (5.3a → 5.3c → 5.3d → 5.3b → 5.3e).
-
-- *5.3a — `.open` routing plus ambient intents. (Done, commit `b056729`, 2026-05-18.)* Deep-link routing through `DeepLinkService` for all three entity types (email, meeting, chat), plus `.repeatLast` and `.exit`. Bundled polish on `.open` anchors and summary phrasing.
-- *5.3c — Domain-narrowed summaries and sender filtering. (Done, commit `3895b26`, 2026-05-19.)* Domain detector (`.email` / `.chat` / `.meeting` / `.all`) routes both `.summary` and `.filter`-no-sender requests to the right slice of the data. `.filter` with a resolved sender (via the existing `NLTaggerEntityMatcher`) narrows to that sender's matches. New registry methods: `summaryEmailOnly`, `summaryChatOnly`, `summaryMeetingOnly`, `summaryFilteredBySender`. Downstream domain detection on both classifier paths handles the classifier's `.summary` / `.filter` noise for plain count queries without anchor tuning.
-- *5.3d — Meeting details plumbing. (Done, commit `589e5f1`, 2026-05-19.)* The `Meeting` model adds `attendees` (`subject` and `organizer` already present from earlier slices); Graph `/me/events` `$select` extended to populate it. A new `meetingDetailed(focus:)` registry method answers "what / who / when" questions about the next meeting with focused phrasing via a `MeetingFocus` enum and a `detectMeetingFocus` keyword scan over the utterance. `summaryMeetingOnly` routes through it; `summarySentence`'s embedded meeting phrase gains the subject in a tight form. Carry-forward A from 5.3c.
-- *5.3b — Disambiguation wiring and unknown-sender response. (Done, commit `5850da5`, 2026-05-19.)* The Phase-4 `DisambiguatingPanel` UI gets its trigger logic and resume path. `SessionCoordinator` forks `.filter` resolution three ways (resolved / unknown / needs-disambiguation), suspends the turn on >1 distinct canonicals, speaks the disambig prompt, and resumes on candidate selection with the chosen entityRef substituted back in. Touch select, touch Cancel, and mic-cancel all verified on device. Unknown-sender response (5.3d carry-fwd B) closes the silent fall-through on "from <X>" with no NLTagger match. Bare-"chats" anchor micro (5.3c carry-fwd C) included. `ConfirmingPanel` left untouched per the `ActionKind` Day-1-empty comment in `DialogState.swift`; Day 2 `markEmailRead` brief wires it. Voice-path candidate resolution implemented but inactive in tap-to-talk; auto-listen on entry to `.disambiguating` is a 5.4 dependency (gate behind `preferredRestState == .listening`).
-- *5.3e — Dialog-stack cleanup.* Three P1 fixes from the 2026-05-19 code review: hoist `pendingDisambiguation` clearance into the coordinator's exit-from-`.disambiguating` handler so deep-link taps and TTS throws can't leak transient state into the next turn; wrap three unguarded `print()` calls in `#if DEBUG`; drop the surface-as-canonical fallback in `NLTaggerEntityMatcher.matchAgainstKnown` so tagged-but-unknown names route through `extractFromName` → `.unknown(name:)` → `filterUnknownSender` instead of silently mis-resolving to `"Nothing from X."` Stale "Phase 5" comment on `ConfirmingPanel.onYes` updated to Day 2.
-
-Done (umbrella) when: every Day 1 intent the classifier emits drives a real side effect or a real response; nothing falls through to the no-op fallback; the natural-utterance set David exercised in 5.3c verification gets a useful answer end to end.
-
-**5.4 — Conversation mode and D8 barge-in.** The architectural lift Mac-Claude diagnosed 2026-05-15. Wire `SFSpeechRecognizer`'s natural `isFinal` delivery into a `listening → processing → speaking` transition in conversation mode, so hands-free turn-taking actually advances the state machine without a mic tap. Once that's in, D8 auto-cut barge-in: VAD on the input tap during `.speaking` cuts the synthesizer at the next word boundary (the scaffold from 5.0 emits the events). Settings' Listening Mode toggle, currently exposed but pointing at the broken path, becomes correct. **Picks up the 5.3b voice-path dependency**: gate auto-listen on entry to `.disambiguating` behind `preferredRestState == .listening` so `handleDisambiguationUtterance` (ordinal / canonical / "never mind" / two-miss bail) goes live in conversation mode.
-
-Done when: conversation mode runs a multi-turn loop on device without mic taps; D8 barge-in cuts the synthesizer cleanly mid-response and re-enters listening.
-
-This slice may split. Auto-finalization could turn out hairier than it looks (the `endAudio()` rapid-call issue Mac-Claude found on 2026-05-15 may want its own investigation). Call at slice-start.
-
-**5.5 — Privacy audit and pre-TestFlight gate.** Rolls forward into Phase 6 entrance.
-
-- Confirm no `URLSession` calls outside Microsoft Graph and Microsoft identity endpoints.
-- Confirm no analytics, crash reporters, or telemetry SDKs anywhere in the dependency graph.
-- Persona drift sweep across `ResponseTemplateRegistry` — every phrase reviewed against `PERSONA.md`.
-- Accessibility pass: VoiceOver labels, Dynamic Type at largest size, reduced-motion variants per D22.
-
-Done when: privacy posture is provably clean by code inspection; persona phrasing is consistent end-to-end; accessibility runs without warnings at the largest Dynamic Type setting.
-
-### Phase 6: Pre-TestFlight checklist
-
-- Permission strings in `Info.plist` reviewed.
-- App Store Connect App Privacy declaration set to "Data Not Collected."
-- Persona drift check across the response template registry.
-- Accessibility test pass: VoiceOver, Dynamic Type at largest size, reduced motion.
-- Privacy posture documented in README and `PRIVACY.md`.
-- Final smoke test on physical device.
-
-## Out of scope
-
-The architecture explicitly excludes several patterns common to traditional email and messaging apps:
-
-- Detail views for emails or chats. D27 puts these behind deep-links to Outlook and Teams.
-- Email body parsing or HTML stripping. The app does not display bodies, so it does not need to parse them.
-- In-app reply composition. Reply by voice via Outlook deep-link in reply mode (Day 2).
-- Voice-driven list browsing. Single screen plus deep-link covers browsing.
+Backlog at `~/notes/BACKLOG.md` accumulates v2 work and any deferred polish as it surfaces.
 
 ## Configuration
 
-- Client ID for `excelano.onmicrosoft.com` tenant (publisher-verified) lives in `Constants.swift` as the default. Phase 4 wires `@AppStorage` so users can override per D25.
+- Client ID for `excelano.onmicrosoft.com` tenant in `Constants.swift` (default; user can override per D25).
 - Bundle ID: `com.excelano.checkin`.
 - Redirect URI: `msauth.com.excelano.checkin://auth`.
-- Brand colors: dark navy `#0f2233`, teal `#2ab8d0`, muted `#6a8899`.
+- Brand colors: navy `#0D2D5B`, cyan `#00ADEE`.
 
 ## Reference
 
-- `DESIGN.md` — 33 design decisions, the source of truth for what we are building and why.
-- `PERSONA.md` — the working voice persona reference.
-- `STATES.md` — the application state diagram and transitions.
-- `CAPABILITIES.md` — Apple voice/audio API and Natural Language framework capability scan.
-- `PHASE3-NOTES.md` — patterns extracted from the archived web prototype, queued for Phase 3.
-- `PRIVACY.md` — privacy posture statement.
-- `SELF-HOSTING.md` — full self-hosting walkthrough.
+- `DESIGN.md` — 33 numbered decisions, the source of truth.
+- `STATES.md` — state machine.
+- `PERSONA.md` — voice persona.
+- `PRIVACY.md` — privacy posture.
+- `SELF-HOSTING.md` — D25 and D26 self-hosting walkthrough.
+- `GUIDE.md` — architecture and Swift bridge for a Swift-newcomer reader.
+- `SWIFT-MODERN.md` — Swift idioms post-2016.
+- `CAPABILITIES.md` — Apple API capability scan.
+- `~/notes/BACKLOG.md` — captured items deferred from current execution.

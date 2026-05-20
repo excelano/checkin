@@ -20,7 +20,7 @@ Speech recognition runs on-device using `SFSpeechRecognizer` with `requiresOnDev
 
 ## Status
 
-Early. The design audit is complete (see `DESIGN.md`, 33 numbered decisions). The architecture build (`StateMachine`, `DialogContext`, intent classifier, response template registry, deep-link service, audio session, earcons) is the next piece of work. See `PLAN.md` for the Day 1 build sequence.
+Pre-TestFlight. The design audit (33 numbered decisions in `DESIGN.md`), the state machine, the dialog layer, the Graph fetch, the deep-link routing, the disambiguation flow, and the on-device voice loop are all in. Remaining work — audio session hardening, conversation mode, accessibility, persona drift sweep, and the pre-submission gate — is sequenced in `PLAN.md` as six phases. v1 ships read-and-navigate; mutations (mark, flag, delete, bulk) land in v2.
 
 The keeper code in this repo (MSAL auth wrapper, Microsoft Graph data layer, models, brand, utilities) carries over from an earlier iteration of the project that lives at the archived [excelano/checkin-voice](https://github.com/excelano/checkin-voice) repo. The voice prototype that preceded the iOS app lives at the archived [excelano/checkin-web-prototype](https://github.com/excelano/checkin-web-prototype) repo.
 

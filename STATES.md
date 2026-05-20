@@ -107,7 +107,14 @@ Help is reachable from any `active` substate via the help intent or the visible 
 
 ## Audio session per state
 
-The audio session is configured `.playAndRecord` with `.voiceChat` mode in `listening`, `processing`, `speaking`, `disambiguating`, and `confirming`. The session is deactivated in `idle`, `helpDisplayed`, and `settingsDisplayed`.
+Silent-respect is the policy: when the user has the hardware silent switch on, the app stays silent (like Mail or Calendar, not Music). Recording-capable categories bypass silent by iOS design, so the session toggles per phase.
+
+- `.playAndRecord` with `.spokenAudio` mode in `listening`, `disambiguating`, and `confirming` (mic is hot for recognition or selection).
+- `.soloAmbient` in `speaking` so TTS honors silent.
+- `.processing` is a brief transition and inherits whichever category preceded it.
+- Session is deactivated in `idle`, `helpDisplayed`, and `settingsDisplayed`.
+
+The `AVSpeechSynthesizer` instance is recreated per utterance so a category transition can't wedge an in-flight synth (Apple's documented gotcha when the session changes mid-utterance). Earcons play through the same per-phase session so they too respect silent.
 
 ## Earcons
 
