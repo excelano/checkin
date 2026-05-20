@@ -384,7 +384,14 @@ private struct MeetingCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityHint("Open in Outlook calendar")
+    }
+
+    private var accessibilityLabel: String {
+        var parts = ["Next meeting", meeting.subject, untilTime(meeting.start)]
+        if !meeting.organizer.isEmpty { parts.append("with \(meeting.organizer)") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -406,7 +413,7 @@ private struct EmailRow: View {
                             .font(.caption)
                             .foregroundStyle(Brand.textMuted)
                     }
-                    Text(email.subject).font(.body).foregroundStyle(.white).lineLimit(1)
+                    Text(email.subject).font(.body).foregroundStyle(.white).lineLimit(2)
                 }
             }
             .padding(.vertical, 8)
@@ -438,12 +445,12 @@ private struct ChatRow: View {
                             .foregroundStyle(Brand.textMuted)
                     }
                     if !chat.topic.isEmpty {
-                        Text(chat.topic).font(.body).foregroundStyle(.white).lineLimit(1)
+                        Text(chat.topic).font(.body).foregroundStyle(.white).lineLimit(2)
                     } else {
                         Text(truncate(chat.preview, maxLen: 60))
                             .font(.body)
                             .foregroundStyle(Brand.textMuted)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                 }
             }

@@ -106,8 +106,12 @@ struct HelpView: View {
         VStack(alignment: .leading, spacing: 12) {
             example("Summary",        "what's on my plate", "what do I have today")
             example("Filter by name", "anything from Tony",  "any from Sarah")
+            example("Counts",         "how many emails",     "any chats from Tony")
+            example("Time",           "when's my next meeting", "how long until my meeting")
             example("Refresh",        "refresh",             "check again")
             example("Open",           "open Tony's email",   "open my next meeting", "open my chat with Sarah")
+            example("Reply",          "reply to Tony",       "reply to Sarah's latest")
+            example("Join meeting",   "join my next meeting")
             example("Repeat / Stop",  "say that again",      "stop", "exit")
             example("Help",           "what can I say",      "help")
             Text("Tap any item on the summary to open it in Outlook or Teams.")
@@ -120,13 +124,10 @@ struct HelpView: View {
 
     private var laterContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            laterRow("Quick counts",   "how many emails", "next meeting in")
             laterRow("Mark read",      "mark Tony's email read")
             laterRow("Flag",           "flag Tony's email")
-            laterRow("Reply by voice", "reply to Tony \u{2014} I'll get back to you tomorrow")
             laterRow("Soft-delete",    "delete Tony's email")
             laterRow("Bulk actions",   "mark all read except the latest")
-            laterRow("Join meeting",   "join my next meeting")
         }
         .padding(.top, 8)
     }
@@ -135,8 +136,8 @@ struct HelpView: View {
         VStack(alignment: .leading, spacing: 10) {
             dontDoRow("Read or summarize email bodies",
                       "Tap to open in Outlook.")
-            dontDoRow("Reply by voice",
-                      "Tap to compose in Outlook.")
+            dontDoRow("Compose a reply in this app",
+                      "I open Outlook with the recipient set; finish there.")
             dontDoRow("Browse long lists by voice",
                       "The single screen plus deep-link covers it.")
             dontDoRow("Track tasks, weather, news, web searches",

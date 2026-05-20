@@ -140,6 +140,7 @@ struct SettingsView: View {
         Section {
             Picker("Mode", selection: $listeningMode) {
                 Text("Tap to talk").tag("tapToTalk")
+                Text("Conversation").tag("conversation")
             }
             .pickerStyle(.inline)
             .labelsHidden()
@@ -147,17 +148,16 @@ struct SettingsView: View {
                 stateMachine.preferredRestState = (new == "conversation") ? .listening : .idle
             }
             .onAppear {
-                // A previous build allowed selecting "conversation" before
-                // 5.4 wires the auto-finalization path. Reset any stale
-                // value so the rest-state stays at idle.
-                if listeningMode != "tapToTalk" {
-                    listeningMode = "tapToTalk"
-                }
+                // Keep the live preferredRestState in sync with the stored
+                // setting on every sheet open. AppStorage carries the
+                // selection across launches; the state machine resets it
+                // on init, so it'd otherwise drift back to .idle.
+                stateMachine.preferredRestState = (listeningMode == "conversation") ? .listening : .idle
             }
         } header: {
             Text("Listening Mode")
         } footer: {
-            Text("Tap to talk: each turn requires a mic tap. Conversation mode lands in a future release.")
+            Text("Tap to talk: each turn requires a mic tap. Conversation: I keep the mic open between turns and finalize when you stop speaking.")
         }
     }
 

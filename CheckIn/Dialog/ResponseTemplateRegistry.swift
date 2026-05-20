@@ -77,15 +77,21 @@ enum ResponseTemplateRegistry {
         "Worth a look in Outlook. Tap to open it."
     ]
 
+    // Pure-compose redirects fire on "compose an email to Liz", "dictate a
+    // message", and similar — utterances where the user wants to write the
+    // body themselves but by voice. Reply intents proper ("reply to Tony")
+    // go through the `.reply` deep-link path now; this pool is the
+    // fallback for the composition slice of voice-reply that's still out
+    // of scope by design.
     static let voiceReplyRedirects: [String] = [
-        "Replying isn't in my range yet. Tap to compose in Outlook.",
-        "I don't reply by voice yet. Tap to open it in Outlook.",
-        "Not yet on replies. Tap to compose in Outlook.",
+        "Composing isn't mine. Tap to write in Outlook.",
+        "I open the reply; I don't dictate the body. Tap to compose.",
+        "I don't dictate. Tap to compose in Outlook.",
         "Reply work happens in Outlook. Tap to open it.",
         "I leave composing to Outlook. Tap to reply there.",
-        "Not yet writing on your behalf. Tap to compose in Outlook.",
-        "I don't dictate replies yet. Tap to compose in Outlook.",
-        "Composing isn't mine yet. Tap to open it in Outlook."
+        "Not writing on your behalf. Tap to compose in Outlook.",
+        "I don't dictate replies. Tap to compose in Outlook.",
+        "Composing isn't mine. Tap to open it in Outlook."
     ]
 
     static let listBrowseRedirects: [String] = [
@@ -193,8 +199,11 @@ enum ResponseTemplateRegistry {
     static let helpLong: String =
         "I cover three things. Calendar, email, and chats. " +
         "Ask 'what's on my plate' for a summary. " +
-        "Ask 'any from Tony' to filter by sender. " +
+        "Ask 'any from Tony' to filter by sender, or 'how many emails' for a count. " +
+        "Ask 'when's my next meeting' for the time. " +
         "Say 'open Tony's email' or 'open my next meeting' to jump to Outlook or Teams. " +
+        "Say 'reply to Tony' and I'll open Outlook ready to compose. " +
+        "Say 'join my meeting' for the Teams link. " +
         "Say 'check again' to refresh, 'say that again' to repeat, or 'stop' to cut me off. " +
         "Tap the question mark for the full list."
 

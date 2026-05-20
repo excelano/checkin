@@ -15,6 +15,11 @@ struct CheckInApp: App {
     init() {
         let auth = AuthService()
         let sm = StateMachine()
+        // Hydrate the rest-state preference from AppStorage so a user who
+        // chose Conversation in a prior session lands in .listening from
+        // first turn instead of waiting for them to reopen Settings.
+        let storedMode = UserDefaults.standard.string(forKey: "listeningMode") ?? "tapToTalk"
+        sm.preferredRestState = (storedMode == "conversation") ? .listening : .idle
         let speech = AppleSpeechService()
         let tts = AppleTTSService()
         let earcons = AppleEarconPlayer()

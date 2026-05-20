@@ -149,6 +149,25 @@ final class SessionCoordinator {
              (.active(.disambiguating), .active(.listening)),
              (.active(.confirming), .active(.listening)):
             await beginListening()
+        case (.active(.speaking), .active(.disambiguating)):
+            // Auto-listen for the disambig answer in conversation mode.
+            // Tap-to-talk leaves the recognizer off; the user taps the mic
+            // to voice-pick or taps a candidate. The disambig branch in
+            // handle(_ update:) is already wired to route the next final
+            // transcript to handleDisambiguationUtterance.
+            if stateMachine.preferredRestState == .listening {
+                await beginListening()
+            }
+        case (.active(.disambiguating), _):
+            // Conversation mode left the recognizer running in
+            // .disambiguating. Exits to .listening fall through the case
+            // above and reuse the implicit teardown inside startListening.
+            // Every other exit (resumeDisambiguation → .processing,
+            // cancelDisambiguation → .idle for tap-to-talk) needs an
+            // explicit cancel here. No-op when the recognizer isn't live.
+            if speechService.isListening {
+                speechService.cancel()
+            }
         case (.active(.listening), .active(.processing)):
             // User signaled "I'm done speaking." Finalize the recognizer;
             // the final transcript will arrive shortly via the transcripts
@@ -243,16 +262,22 @@ final class SessionCoordinator {
 
         // A transcript arriving while disambiguating means the user is
         // voice-picking a candidate, not starting a fresh intent turn.
-        // Day 1 tap-to-talk doesn't auto-restart listening in .disambiguating,
-        // so this branch only fires once that wire lands (or in conversation
-        // mode once auto-finalize is in). The code stays so the resolver
-        // is in place when listening posture changes.
         if case .active(.disambiguating(let suspended, let candidates))
             = stateMachine.currentState {
             await handleDisambiguationUtterance(update.text,
                                                 suspended: suspended,
                                                 candidates: candidates)
             return
+        }
+
+        // Auto-finalize: in tap-to-talk the UI tap moved the machine to
+        // .processing before the recognizer stopped, so by the time the
+        // final transcript arrives we're already there. In conversation
+        // mode the recognizer's natural isFinal fires while the machine
+        // is still .listening — drive it forward here so the rest of the
+        // turn's logic runs identically to tap-to-talk.
+        if case .active(.listening) = stateMachine.currentState {
+            stateMachine.transition(to: .active(.processing(.thinking)))
         }
 
         let context = stateMachine.context
