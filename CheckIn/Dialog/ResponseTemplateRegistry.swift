@@ -312,6 +312,7 @@ enum ResponseTemplateRegistry {
     static let stopAcknowledged: String = ""           // No spoken ack on stop; the silence is the answer.
     static let exitAcknowledged: String = "See you."
     static let nothingToRepeat: String = "Nothing to repeat yet."
+    static let notFetched: String = "I haven't fetched yet. Say 'check' and I'll grab it."
     static let settingsOpened: String = ""             // Settings sheet replaces speech.
     static let helpOpened: String = ""                 // Same: help sheet replaces speech.
 

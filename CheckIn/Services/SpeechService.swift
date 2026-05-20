@@ -13,17 +13,16 @@ import os
 /// touching the microphone or `SFSpeechRecognizer`.
 ///
 /// The real implementation in `AppleSpeechService` configures
-/// `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true`, drives
-/// VAD off the audio engine input tap, and primes recognition with
-/// `contextualStrings` from the current summary's senders, subjects, and
-/// chat topics. `AudioSessionController` owns the audio session category
-/// transitions; this service starts/stops the engine and recognizer only.
+/// `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true` and drives
+/// VAD off the audio engine input tap. `AudioSessionController` owns the
+/// audio session category transitions; this service starts/stops the engine
+/// and recognizer only.
 protocol SpeechService: AnyObject {
     var isListening: Bool { get }
     var transcripts: AsyncStream<TranscriptUpdate> { get }
 
     func requestAuthorization() async -> SpeechAuthorization
-    func startListening(contextualStrings: [String]) throws
+    func startListening() throws
     func stopListening()
     func cancel()
 }
@@ -49,12 +48,9 @@ enum SpeechServiceError: Error {
 }
 
 /// Apple-backed implementation per D9. Configures `SFSpeechRecognizer` with
-/// `requiresOnDeviceRecognition = true`, drives the buffer feed off the
-/// audio engine input tap, and primes recognition with `contextualStrings`.
-/// `AudioSessionController` configures the session before this service is
-/// asked to start.
-///
-/// Custom language model attachment (D10) is wired in a later slice.
+/// `requiresOnDeviceRecognition = true` and drives the buffer feed off the
+/// audio engine input tap. `AudioSessionController` configures the session
+/// before this service is asked to start.
 final class AppleSpeechService: SpeechService {
     let transcripts: AsyncStream<TranscriptUpdate>
     private let continuation: AsyncStream<TranscriptUpdate>.Continuation
@@ -98,7 +94,7 @@ final class AppleSpeechService: SpeechService {
         return micGranted ? .authorized : .denied
     }
 
-    func startListening(contextualStrings: [String]) throws {
+    func startListening() throws {
         guard let recognizer, recognizer.isAvailable else {
             throw SpeechServiceError.recognizerUnavailable
         }
@@ -112,7 +108,6 @@ final class AppleSpeechService: SpeechService {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.requiresOnDeviceRecognition = true
         req.shouldReportPartialResults = true
-        req.contextualStrings = contextualStrings
         self.request = req
 
         let inputNode = audioEngine.inputNode
@@ -197,7 +192,7 @@ final class StubSpeechService: SpeechService {
     }
 
     func requestAuthorization() async -> SpeechAuthorization { .notDetermined }
-    func startListening(contextualStrings: [String]) throws {}
+    func startListening() throws {}
     func stopListening() {}
     func cancel() {}
 }

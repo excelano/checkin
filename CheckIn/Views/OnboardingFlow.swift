@@ -122,6 +122,7 @@ private struct PermissionsStep: View {
             permissionRow(
                 granted: micGranted,
                 title: "Microphone",
+                grantLabel: "Grant microphone access",
                 explanation: "I listen when you talk to me. Listening only happens on your device."
             ) {
                 requestMic()
@@ -130,6 +131,7 @@ private struct PermissionsStep: View {
             permissionRow(
                 granted: speechGranted,
                 title: "Speech recognition",
+                grantLabel: "Grant speech recognition access",
                 explanation: "I figure out what you said using on-device speech recognition. Nothing leaves your phone."
             ) {
                 requestSpeech()
@@ -151,10 +153,12 @@ private struct PermissionsStep: View {
                 .frame(maxWidth: .infinity)
         }
         .padding(28)
+        .onAppear(perform: refreshGrantedState)
     }
 
     private func permissionRow(granted: Bool,
                                title: String,
+                               grantLabel: String,
                                explanation: String,
                                action: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -171,11 +175,20 @@ private struct PermissionsStep: View {
                 Button("Grant", action: action)
                     .foregroundStyle(Brand.accent)
                     .padding(.top, 4)
+                    .accessibilityLabel(grantLabel)
             }
         }
         .padding(14)
         .background(Brand.bgDarker)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Reconcile local toggle state with the system on every appear. Without
+    /// this, a returning user who previously granted both permissions sees
+    /// stale "Grant" buttons.
+    private func refreshGrantedState() {
+        micGranted = AVAudioApplication.shared.recordPermission == .granted
+        speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
     }
 
     private func requestMic() {
@@ -267,15 +280,8 @@ private struct FirstQueryStep: View {
     let onContinue: () -> Void
     let onSkip: () -> Void
 
-    private static let invitations = [
-        "Try saying: what's on my plate.",
-        "Give it a try: what do I have today?",
-        "Ask me: any from anyone important?",
-        "Try: how does my morning look?",
-        "Try: what's my next meeting?"
-    ]
-
-    @State private var invitation: String = invitations.randomElement() ?? invitations[0]
+    @State private var invitation: String = ResponseTemplateRegistry.onboardingInvitations.randomElement()
+        ?? ResponseTemplateRegistry.onboardingInvitations[0]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {

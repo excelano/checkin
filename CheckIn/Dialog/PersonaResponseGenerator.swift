@@ -95,7 +95,7 @@ struct PersonaResponseGenerator: ResponseGenerator {
 
     private func summaryResponse(utterance: String, context: DialogContext) -> SpokenResponse {
         guard let summary = context.summary else {
-            return SpokenResponse(text: "I haven't fetched yet. Say 'check' and I'll grab it.",
+            return SpokenResponse(text: ResponseTemplateRegistry.notFetched,
                                   category: .answer)
         }
         let text: String
@@ -117,7 +117,7 @@ struct PersonaResponseGenerator: ResponseGenerator {
                                 resolvedSender: String?,
                                 context: DialogContext) -> SpokenResponse {
         guard let summary = context.summary else {
-            return SpokenResponse(text: "I haven't fetched yet. Say 'check' and I'll grab it.",
+            return SpokenResponse(text: ResponseTemplateRegistry.notFetched,
                                   category: .answer)
         }
         if let sender = resolvedSender {
@@ -140,7 +140,7 @@ struct PersonaResponseGenerator: ResponseGenerator {
 
     private func timeQueryResponse(context: DialogContext) -> SpokenResponse {
         guard let summary = context.summary else {
-            return SpokenResponse(text: "I haven't fetched yet. Say 'check' and I'll grab it.",
+            return SpokenResponse(text: ResponseTemplateRegistry.notFetched,
                                   category: .answer)
         }
         guard let meeting = summary.meeting else {

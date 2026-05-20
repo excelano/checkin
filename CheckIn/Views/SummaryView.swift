@@ -116,7 +116,7 @@ struct SummaryView: View {
         VStack(spacing: 12) {
             Spacer(minLength: 80)
             Image(systemName: "mic.fill")
-                .font(.system(size: 38))
+                .font(.largeTitle)
                 .foregroundStyle(Brand.accent)
             Text("Tap the mic and ask")
                 .font(.title3.weight(.semibold))
@@ -132,7 +132,7 @@ struct SummaryView: View {
     private var emptyDayState: some View {
         VStack(spacing: 8) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 38))
+                .font(.largeTitle)
                 .foregroundStyle(Brand.accent)
             Text("Nothing pending.")
                 .font(.title3.weight(.semibold))
@@ -373,7 +373,7 @@ private struct MeetingCard: View {
                         Text("with \(meeting.organizer)")
                             .font(.subheadline)
                             .foregroundStyle(Brand.textMuted)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                 }
             }

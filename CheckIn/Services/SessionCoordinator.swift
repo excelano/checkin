@@ -1019,7 +1019,7 @@ final class SessionCoordinator {
         }
         audioController.configure(for: .listening)
         do {
-            try speechService.startListening(contextualStrings: [])
+            try speechService.startListening()
         } catch {
             logger.error("startListening failed: \(error.localizedDescription, privacy: .public)")
             #if DEBUG

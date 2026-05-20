@@ -17,13 +17,12 @@ enum Constants {
     // Do not include them here or MSAL will throw an error.
     static let baseScopes = [
         "User.Read",
-        "Mail.ReadWrite",
-        "Mail.Send",
+        "Mail.Read",
         "Calendars.Read"
     ]
 
     static let teamsScopes = [
-        "Chat.ReadWrite"
+        "Chat.Read"
     ]
 
     /// Whether the Teams pending-chat surface is part of the summary. Single
