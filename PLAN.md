@@ -66,6 +66,18 @@ Also lands the F12 immediate-render disambig panel binding (already in the worki
 - App Store Connect "Data Not Collected" prep.
 - Final smoke test on device.
 
+## Session cadence
+
+Execution sequenced as five sessions, each ending in a commit with on-device verification and a context compact:
+
+1. **Phase A.** Audio architecture. Foundation; everything downstream depends on stable audio.
+2. **Phase B.** Entity matcher rework. Isolated session so the behavior change has a clean device check before C starts.
+3. **Phase C.** New read/navigate intents. Three intents plus two carry-forwards is a full session.
+4. **Phase D + E together.** Conversation mode wires (small) bundled with the accessibility and persona sweep (medium).
+5. **Phase F.** Pre-TestFlight gate ends in an App Store Connect upload; clean session.
+
+Each compact boundary preserves a verified-on-device commit. New items that surface during execution and aren't in scope for the current session go to `~/notes/BACKLOG.md` and are addressed after the current phase, not absorbed into it.
+
 ## Out of scope for v1
 
 - Mutations: mark-as-read, flag, soft-delete, bulk operations. Bundled in v2.
