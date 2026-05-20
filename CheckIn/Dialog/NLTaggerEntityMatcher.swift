@@ -4,21 +4,34 @@
 // Built with AI assistance (Claude, Anthropic)
 
 import Foundation
-import NaturalLanguage
 
-/// Day 1 entity matcher per D15. Uses `NLTagger` with `.nameType` for
-/// personal names, simple word-list rules for ordinals and relative dates,
-/// and a regex for raw numbers. Person matches are reconciled against the
-/// senders and chat partners in the current `DialogContext.summary`, so
-/// "Tony" canonicalizes to "Tony Smith" when only one Tony is in view, or
-/// returns both candidates ranked equally when two Tonys are.
+/// Entity matcher per D15. Personal-name resolution is longest-canonical
+/// -substring matching against the lowercased utterance, scoped to the
+/// senders and chat partners in the current `DialogContext.summary`. The
+/// earlier NLTagger-driven path over-fired on vendor tokens that lead
+/// several known sender names ("Microsoft" leading "Microsoft Outlook",
+/// "Microsoft Teams", "Microsoft 365 Message Center", ...): it surfaced
+/// every Microsoft-prefix candidate and pushed the dialog into a noisy
+/// D7 disambiguation. The current implementation prefers a full-canonical
+/// span ("tony smith"), falls back to a first-name span ("tony") only
+/// when the bare token resolves a small set of real-person candidates,
+/// and otherwise returns nothing so `SessionCoordinator.extractFromName`
+/// can route the surface to `filterUnknownSender`.
 ///
 /// `contextualStrings` priming on the speech recognizer side (per D9 and
 /// D10) handles the upstream half: the recognizer is more likely to spell
 /// "Hernandez" correctly when a known contact is on the call sheet. This
-/// matcher handles the downstream half: matching the recognized tokens to
-/// concrete entities the dialog can act on.
+/// matcher handles the downstream half: matching the recognized tokens
+/// to concrete entities the dialog can act on.
 struct NLTaggerEntityMatcher: EntityMatcher {
+
+    /// Suppress first-name fallback when this many or more known people
+    /// share a leading token. That pattern is structurally a vendor
+    /// sending under multiple display names (Microsoft Outlook,
+    /// Microsoft Teams, ...), not a real-person disambiguation that D7
+    /// can handle — leave matches empty so the surface routes through
+    /// `filterUnknownSender`.
+    private static let firstNameFallbackCeiling = 4
 
     /// Numeric ordinals readable by the dialog. The classifier folds
     /// "the first" / "first one" / "number one" alike to position 1.
@@ -67,42 +80,10 @@ struct NLTaggerEntityMatcher: EntityMatcher {
     private func matchPeople(in text: String,
                              lowercased: String,
                              context: DialogContext) -> [EntityMatch] {
-        let tagger = NLTagger(tagSchemes: [.nameType])
-        tagger.string = text
-        var surfaceForms: [String] = []
-
-        let range = text.startIndex..<text.endIndex
-        let options: NLTagger.Options = [.omitPunctuation, .omitWhitespace, .joinNames]
-        tagger.enumerateTags(in: range, unit: .word, scheme: .nameType, options: options) { tag, tokenRange in
-            if tag == .personalName {
-                surfaceForms.append(String(text[tokenRange]))
-            }
-            return true
-        }
-
-        // The NLTagger may miss casual single first-name references in
-        // lowercased speech ("any from tony"). Fall back to scanning the
-        // current contact list out of the summary.
         let knownPeople = peopleInScope(context: context)
-        var candidates = matchAgainstKnown(surfaceForms: surfaceForms, knownPeople: knownPeople)
-
-        if candidates.isEmpty {
-            // Last-ditch: match a known first name appearing as a bare
-            // token. Avoids missing utterances NLTagger ranks below the
-            // tagging threshold.
-            for person in knownPeople {
-                let firstName = person.split(separator: " ").first.map(String.init) ?? person
-                if !firstName.isEmpty,
-                   lowercased.range(of: "\\b\(firstName.lowercased())\\b",
-                                    options: .regularExpression) != nil {
-                    candidates.append(EntityMatch(surface: firstName,
-                                                  canonical: person,
-                                                  confidence: 0.7))
-                }
-            }
-        }
-
-        return candidates
+        return matchAgainstKnown(text: text,
+                                 lowercasedText: lowercased,
+                                 knownPeople: knownPeople)
     }
 
     /// Distinct senders and chat partners from the current summary. These
@@ -120,39 +101,84 @@ struct NLTaggerEntityMatcher: EntityMatcher {
         return people
     }
 
-    /// Reconcile NLTagger surface forms against known people. A first-name
-    /// match that resolves to exactly one person is high-confidence; one
-    /// that resolves to two or more drops to ambiguous and forces the
-    /// dialog into D7 disambiguation.
-    private func matchAgainstKnown(surfaceForms: [String],
+    /// Longest-canonical-substring matching against the lowercased
+    /// utterance. The bare-token first-name fallback fires only when the
+    /// utterance doesn't already contain a full canonical and the first
+    /// name resolves a small number of candidates; vendor tokens that
+    /// lead 4+ known senders are dropped so the surface routes through
+    /// `filterUnknownSender` instead of triggering a noisy disambig.
+    ///
+    /// `text` is the original-case utterance; the surface stored on
+    /// each match is extracted from it at the indices found in
+    /// `lowercasedText` so spoken templates ("There are multiple senders
+    /// that match Tony.") read naturally.
+    private func matchAgainstKnown(text: String,
+                                   lowercasedText: String,
                                    knownPeople: [String]) -> [EntityMatch] {
-        guard !surfaceForms.isEmpty, !knownPeople.isEmpty else { return [] }
+        guard !knownPeople.isEmpty else { return [] }
         var matches: [EntityMatch] = []
-        for surface in surfaceForms {
-            let lower = surface.lowercased()
-            let resolved = knownPeople.filter { person in
-                let parts = person.lowercased().split(separator: " ").map(String.init)
-                return parts.contains(lower) || person.lowercased() == lower
-            }
-            if resolved.count == 1 {
+        var consumed: [Range<String.Index>] = []
+
+        let sortedKnown = knownPeople.sorted { $0.count > $1.count }
+        for person in sortedKnown {
+            let needle = person.lowercased()
+            guard let range = wholeWordRange(of: needle, in: lowercasedText),
+                  !consumed.contains(where: { $0.overlaps(range) }) else { continue }
+            consumed.append(range)
+            let surface = casedSubstring(of: text, atLowercasedRange: range, in: lowercasedText) ?? person
+            matches.append(EntityMatch(surface: surface,
+                                       canonical: person,
+                                       confidence: 0.95))
+        }
+        if !matches.isEmpty { return matches }
+
+        var byFirstName: [String: [String]] = [:]
+        for person in knownPeople {
+            let firstName = person.split(separator: " ").first.map(String.init) ?? person
+            let key = firstName.lowercased()
+            guard !key.isEmpty else { continue }
+            byFirstName[key, default: []].append(person)
+        }
+        for (firstName, candidates) in byFirstName {
+            guard let range = wholeWordRange(of: firstName, in: lowercasedText) else { continue }
+            if candidates.count >= Self.firstNameFallbackCeiling { continue }
+            let surface = casedSubstring(of: text, atLowercasedRange: range, in: lowercasedText)
+                ?? firstName.capitalized
+            if candidates.count == 1 {
                 matches.append(EntityMatch(surface: surface,
-                                           canonical: resolved[0],
-                                           confidence: 0.95))
-            } else if resolved.count > 1 {
-                for person in resolved {
+                                           canonical: candidates[0],
+                                           confidence: 0.85))
+            } else {
+                for person in candidates {
                     matches.append(EntityMatch(surface: surface,
                                                canonical: person,
                                                confidence: 0.6))
                 }
             }
-            // else: NLTagger tagged a name that doesn't match anyone in
-            // scope. Drop it so SessionCoordinator.resolveSender returns
-            // .resolved(nil); extractFromName then catches the "from <X>"
-            // surface and routes to .unknown(name:) → filterUnknownSender.
-            // The prior surface-as-canonical fallback at confidence 0.5
-            // silently misrouted through summaryFilteredBySender.
         }
         return matches
+    }
+
+    private func wholeWordRange(of needle: String,
+                                in haystack: String) -> Range<String.Index>? {
+        guard !needle.isEmpty else { return nil }
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: needle))\\b"
+        return haystack.range(of: pattern, options: .regularExpression)
+    }
+
+    /// Map a range found in the lowercased string back onto the original
+    /// utterance. Index alignment holds for ASCII English names; on the
+    /// rare Unicode mismatch we fall back to the lowercased substring
+    /// rather than risk an out-of-bounds slice.
+    private func casedSubstring(of text: String,
+                                atLowercasedRange range: Range<String.Index>,
+                                in lowercased: String) -> String? {
+        let lowerStart = lowercased.distance(from: lowercased.startIndex, to: range.lowerBound)
+        let lowerEnd = lowercased.distance(from: lowercased.startIndex, to: range.upperBound)
+        guard lowerStart <= text.count, lowerEnd <= text.count else { return nil }
+        let start = text.index(text.startIndex, offsetBy: lowerStart)
+        let end = text.index(text.startIndex, offsetBy: lowerEnd)
+        return String(text[start..<end])
     }
 
     // MARK: - Ordinals, dates, numbers

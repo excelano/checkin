@@ -716,6 +716,8 @@ final class SessionCoordinator {
     private func openEmail(utterance: String, context: DialogContext) async -> OpenOutcome {
         let emails = context.summary?.emails ?? []
         let matches = entityMatcher.match(text: utterance, domain: .person, context: context)
+        let ordinalMatches = entityMatcher.match(text: utterance, domain: .ordinal, context: context)
+        let ordinal = ordinalMatches.first.flatMap { resolveOrdinalSelector($0.canonical) }
 
         // Bare "open my inbox" / "open my email" — no person mentioned, just
         // launch Outlook on the inbox.
@@ -739,21 +741,65 @@ final class SessionCoordinator {
                 text: ResponseTemplateRegistry.openNotFound(name),
                 category: .answer))
         }
+        // Ordinal + sender composition. "Open the latest email from Tony"
+        // and "open the first email from Tony" both reduce a multi-sender
+        // result to a single message before the ambiguity check below
+        // would otherwise refuse. The deep link still goes to the inbox
+        // (Outlook iOS doesn't expose a per-message scheme), but the
+        // resolved email confirms there's something for the user to read
+        // when they land.
+        if ordinal != nil {
+            // Filtered email list is already sorted by Graph $orderby
+            // receivedDateTime desc — index 0 is the latest. "First" in
+            // this dialog means first-as-shown rather than chronologically
+            // earliest, matching how the user perceives the unread list.
+            // Pick the email or report nothing-from-that-position.
+            if pickByOrdinal(resolved, selector: ordinal!) == nil {
+                let name = matches.first?.surface ?? "that"
+                return OpenOutcome(spoken: SpokenResponse(
+                    text: ResponseTemplateRegistry.openNotFound(name),
+                    category: .answer))
+            }
+            if let url = DeepLinkService.outlookInbox {
+                return await openURL(url)
+            }
+            return OpenOutcome(spoken: SpokenResponse(
+                text: ResponseTemplateRegistry.openLaunchFailed,
+                category: .error))
+        }
         let distinctSenders = Set(resolved.map { $0.from })
         if distinctSenders.count > 1 {
             return OpenOutcome(spoken: SpokenResponse(
                 text: ResponseTemplateRegistry.openAmbiguous,
                 category: .answer))
         }
-        // Outlook iOS doesn't expose a per-message open scheme; the inbox is
-        // the documented best. Resolution still served as the existence
-        // check that gated us here.
         if let url = DeepLinkService.outlookInbox {
             return await openURL(url)
         }
         return OpenOutcome(spoken: SpokenResponse(
             text: ResponseTemplateRegistry.openLaunchFailed,
             category: .error))
+    }
+
+    private enum OrdinalSelector {
+        case latest
+        case index(Int)  // 1-based position into the resolved list
+    }
+
+    private func resolveOrdinalSelector(_ canonical: String) -> OrdinalSelector? {
+        if canonical == "latest" { return .latest }
+        if let n = Int(canonical), n >= 1 { return .index(n) }
+        return nil
+    }
+
+    private func pickByOrdinal<T>(_ list: [T], selector: OrdinalSelector) -> T? {
+        switch selector {
+        case .latest:
+            return list.first
+        case .index(let n):
+            let idx = n - 1
+            return list.indices.contains(idx) ? list[idx] : nil
+        }
     }
 
     private func openURL(_ url: URL) async -> OpenOutcome {
