@@ -253,7 +253,7 @@ final class SessionCoordinator {
     }
 
     private func handle(_ update: TranscriptUpdate) async {
-        logger.debug("transcript: \(update.text, privacy: .public) (final=\(update.isFinal))")
+        logger.debug("transcript: \(update.text) (final=\(update.isFinal))")
         #if DEBUG
         print("[transcript] \"\(update.text)\" final=\(update.isFinal)")
         #endif
@@ -963,7 +963,7 @@ final class SessionCoordinator {
         print("[open] \(url.absoluteString) ok=\(ok)")
         #endif
         if !ok {
-            logger.error("openURL failed for \(url.absoluteString, privacy: .public)")
+            logger.error("openURL failed for \(url.absoluteString)")
             return OpenOutcome(spoken: SpokenResponse(
                 text: ResponseTemplateRegistry.openLaunchFailed,
                 category: .error))
