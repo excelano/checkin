@@ -29,10 +29,21 @@ enum ActiveSubstate: Equatable {
     case idle
     case listening
     case processing(ProcessingPhase)
-    case speaking(response: SpokenResponse, returnTo: RestState)
-    case disambiguating(suspendedIntent: SuspendedIntent, candidates: [Candidate])
+    case speaking(response: SpokenResponse, followUp: SpeakingFollowUp)
+    case disambiguating(suspendedIntent: SuspendedIntent,
+                        candidates: [Candidate],
+                        surface: String)
     case helpDisplayed(returnTo: RestState)
     case settingsDisplayed(returnTo: RestState)
+}
+
+/// Where the speaking state goes when TTS finishes. Replaces the previous
+/// `pendingDisambiguation` side-channel on `DialogContext`: the routing
+/// decision is now part of the state that's being exited, not a flag the
+/// exit handler peeks at.
+enum SpeakingFollowUp: Equatable {
+    case rest(RestState)
+    case disambiguate(PendingDisambiguation)
 }
 
 /// Latency-driven substates inside `processing`.
@@ -76,9 +87,9 @@ struct Candidate: Identifiable, Equatable {
     }
 }
 
-/// Transient bundle the coordinator stashes on `DialogContext` while a
-/// disambiguation prompt is being spoken — the speaking-finish path reads
-/// it to know whether to land in `.disambiguating` instead of rest.
+/// Payload of a disambiguation prompt being spoken. Carried inside
+/// `SpeakingFollowUp.disambiguate` so the speaking-finish handler can
+/// route directly to `.disambiguating` without consulting context state.
 struct PendingDisambiguation: Equatable {
     let suspendedIntent: SuspendedIntent
     let surface: String

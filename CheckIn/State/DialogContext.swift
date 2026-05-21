@@ -24,11 +24,6 @@ struct DialogContext {
     /// response and burns memory.
     var turnHistory: [Turn] = []
 
-    /// Disambiguation in flight. The coordinator stashes this when a
-    /// `.filter` utterance resolves to multiple candidates; the speaking-
-    /// finish path consumes it to land in `.disambiguating` rather than rest.
-    var pendingDisambiguation: PendingDisambiguation?
-
     /// Consecutive voice-resolution misses while in `.disambiguating`. Two
     /// misses in a row bail out so the user doesn't get trapped in retries.
     var disambiguationFailedAttempts: Int = 0

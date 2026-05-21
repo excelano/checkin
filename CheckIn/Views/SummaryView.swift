@@ -146,15 +146,16 @@ struct SummaryView: View {
 
     private var voiceArea: some View {
         VStack(spacing: 14) {
-            // The disambig panel renders as soon as pendingDisambiguation
-            // is set in context, not when state == .disambiguating. The
-            // state machine sits in .speaking while the prompt TTS plays,
-            // then transitions to .disambiguating on finish — binding to
-            // pending lets the candidate panel appear immediately so the
-            // user can tap-pick without waiting through the prompt.
-            if let pending = stateMachine.context.pendingDisambiguation {
-                DisambiguatingPanel(utterance: pending.suspendedIntent.utterance,
-                                    candidates: pending.candidates,
+            // The disambig panel renders as soon as the disambig prompt
+            // starts speaking, not after `.disambiguating` is entered.
+            // While the prompt is in flight the state is
+            // `.speaking(_, .disambiguate(pending))`; on TTS finish it
+            // transitions to `.disambiguating`. Rendering off both shapes
+            // lets the candidate panel appear immediately so the user can
+            // tap-pick without waiting through the prompt.
+            if let panel = disambigPanelData {
+                DisambiguatingPanel(utterance: panel.utterance,
+                                    candidates: panel.candidates,
                                     onSelect: { stateMachine.onCandidateSelected?($0) },
                                     onCancel: { stateMachine.onDisambiguationCancelled?() })
             } else {
@@ -171,6 +172,17 @@ struct SummaryView: View {
             }
 
             micButton
+        }
+    }
+
+    private var disambigPanelData: (utterance: String, candidates: [Candidate])? {
+        switch stateMachine.currentState {
+        case .active(.speaking(_, .disambiguate(let pending))):
+            return (pending.suspendedIntent.utterance, pending.candidates)
+        case .active(.disambiguating(let suspended, let candidates, _)):
+            return (suspended.utterance, candidates)
+        default:
+            return nil
         }
     }
 

@@ -186,20 +186,14 @@ final class SessionCoordinator {
             break
         }
 
-        // End-of-turn disambig sweep. Any rest-state entry clears
-        // pendingDisambiguation and disambiguationFailedAttempts so transient
-        // state can't leak into the next turn. Catches non-coordinator exits
-        // (deep-link tap from SummaryView while the panel is up, TTS-throw
-        // recovery into .idle from either the initial prompt or a retry
-        // prompt). Bail and resume retain their pre-transition clears because
-        // both route through .speaking, and handle(tts:) treats a still-set
-        // pendingDisambiguation as the signal to re-enter .disambiguating.
+        // Rest entry zeroes the disambig miss counter so it can't leak into
+        // the next turn. The pendingDisambiguation side-channel that used to
+        // need clearing here is gone — followUp on `.speaking` carries the
+        // routing decision now.
         switch event.to {
         case .active(.idle), .active(.listening):
-            if stateMachine.context.pendingDisambiguation != nil
-                || stateMachine.context.disambiguationFailedAttempts != 0 {
+            if stateMachine.context.disambiguationFailedAttempts != 0 {
                 stateMachine.updateContext {
-                    $0.pendingDisambiguation = nil
                     $0.disambiguationFailedAttempts = 0
                 }
             }
@@ -249,11 +243,12 @@ final class SessionCoordinator {
 
         // A transcript arriving while disambiguating means the user is
         // voice-picking a candidate, not starting a fresh intent turn.
-        if case .active(.disambiguating(let suspended, let candidates))
+        if case .active(.disambiguating(let suspended, let candidates, let surface))
             = stateMachine.currentState {
             await handleDisambiguationUtterance(update.text,
                                                 suspended: suspended,
-                                                candidates: candidates)
+                                                candidates: candidates,
+                                                surface: surface)
             return
         }
 
@@ -296,7 +291,7 @@ final class SessionCoordinator {
                                        text: update.text)
 
         let response: SpokenResponse
-        let returnTo: RestState
+        let followUp: SpeakingFollowUp
 
         switch resolution {
         case .needsDisambiguation(let surface, let candidates):
@@ -305,11 +300,10 @@ final class SessionCoordinator {
             let pending = PendingDisambiguation(suspendedIntent: suspended,
                                                 surface: surface,
                                                 candidates: candidates)
-            stateMachine.updateContext { $0.pendingDisambiguation = pending }
             let text = ResponseTemplateRegistry.disambiguationPrompt(
                 heardSurface: surface, candidates: candidates)
             response = SpokenResponse(text: text, category: .disambiguation)
-            returnTo = stateMachine.preferredRestState
+            followUp = .disambiguate(pending)
             #if DEBUG
             print("[disambig] prompt surface=\(surface) candidates=\(candidates.map { $0.label })")
             #endif
@@ -317,7 +311,7 @@ final class SessionCoordinator {
         case .unknown(let name):
             let text = ResponseTemplateRegistry.filterUnknownSender(name)
             response = SpokenResponse(text: text, category: .answer)
-            returnTo = stateMachine.preferredRestState
+            followUp = .rest(stateMachine.preferredRestState)
             #if DEBUG
             print("[filter] unknown sender name=\(name)")
             #endif
@@ -336,7 +330,7 @@ final class SessionCoordinator {
                 context: stateMachine.context
             )
             response = result.0
-            returnTo = result.1
+            followUp = .rest(result.1)
         }
 
         await utteranceLog.record(
@@ -364,11 +358,14 @@ final class SessionCoordinator {
                 // deep-link route) return straight to the rest state.
                 // AVSpeechSynthesizer fires no delegate callbacks for an
                 // empty utterance, so routing through .speaking would
-                // strand the state machine there.
-                stateMachine.transition(to: dialogState(forRest: returnTo))
+                // strand the state machine there. Silent paths only occur
+                // when followUp is .rest — disambig prompts always speak.
+                if case .rest(let restState) = followUp {
+                    stateMachine.transition(to: dialogState(forRest: restState))
+                }
             } else {
                 stateMachine.transition(
-                    to: .active(.speaking(response: response, returnTo: returnTo))
+                    to: .active(.speaking(response: response, followUp: followUp))
                 )
             }
         }
@@ -444,11 +441,10 @@ final class SessionCoordinator {
     /// the filter intent at full confidence and run the normal speaking
     /// flow.
     func resumeDisambiguation(with candidate: Candidate) {
-        guard case .active(.disambiguating(let suspended, _))
+        guard case .active(.disambiguating(let suspended, _, _))
                 = stateMachine.currentState else { return }
 
         stateMachine.updateContext {
-            $0.pendingDisambiguation = nil
             $0.disambiguationFailedAttempts = 0
         }
         stateMachine.transition(to: .active(.processing(.thinking)))
@@ -462,8 +458,8 @@ final class SessionCoordinator {
 
     /// User cancelled disambiguation (touch Cancel button or mic-tap).
     /// Silent return to rest — the absence of speech is the
-    /// acknowledgment, mirroring `.stop`. The rest-entry sweep in
-    /// `handle(_:)` clears pendingDisambiguation.
+    /// acknowledgment, mirroring `.stop`. The miss counter is zeroed by
+    /// the rest-entry sweep in `handle(_:)`.
     func cancelDisambiguation() {
         let rest = dialogState(forRest: stateMachine.preferredRestState)
         stateMachine.transition(to: rest)
@@ -503,15 +499,17 @@ final class SessionCoordinator {
             if baseResponse.text.isEmpty {
                 stateMachine.transition(to: dialogState(forRest: returnTo))
             } else {
-                stateMachine.transition(to: .active(.speaking(response: baseResponse,
-                                                              returnTo: returnTo)))
+                stateMachine.transition(to: .active(.speaking(
+                    response: baseResponse,
+                    followUp: .rest(returnTo))))
             }
         }
     }
 
     private func handleDisambiguationUtterance(_ text: String,
                                                suspended: SuspendedIntent,
-                                               candidates: [Candidate]) async {
+                                               candidates: [Candidate],
+                                               surface: String) async {
         let lower = text.lowercased()
 
         // Cancel surfaces — silent return to rest. Wider than just .stop
@@ -551,15 +549,12 @@ final class SessionCoordinator {
         // No match — count the miss and either retry or bail.
         stateMachine.updateContext { $0.disambiguationFailedAttempts += 1 }
         let misses = stateMachine.context.disambiguationFailedAttempts
-        let surface = stateMachine.context.pendingDisambiguation?.surface
-            ?? suspended.utterance
 
         if misses >= 2 {
             let response = SpokenResponse(
                 text: ResponseTemplateRegistry.disambiguationExit,
                 category: .answer)
             stateMachine.updateContext {
-                $0.pendingDisambiguation = nil
                 $0.disambiguationFailedAttempts = 0
             }
             await utteranceLog.record(
@@ -575,16 +570,15 @@ final class SessionCoordinator {
             #endif
             stateMachine.transition(to: .active(.speaking(
                 response: response,
-                returnTo: stateMachine.preferredRestState)))
+                followUp: .rest(stateMachine.preferredRestState))))
             return
         }
 
-        // Retry — re-stash pending so speaking-finish lands back in
-        // .disambiguating, and speak the retry prompt.
+        // Retry — speak the retry prompt with a fresh PendingDisambiguation
+        // payload so speaking-finish lands back in .disambiguating.
         let pending = PendingDisambiguation(suspendedIntent: suspended,
                                             surface: surface,
                                             candidates: candidates)
-        stateMachine.updateContext { $0.pendingDisambiguation = pending }
         let prompt = ResponseTemplateRegistry.disambiguationRetry(
             heardSurface: surface, candidates: candidates)
         let response = SpokenResponse(text: prompt, category: .disambiguation)
@@ -601,7 +595,7 @@ final class SessionCoordinator {
         #endif
         stateMachine.transition(to: .active(.speaking(
             response: response,
-            returnTo: stateMachine.preferredRestState)))
+            followUp: .disambiguate(pending))))
     }
 
     /// Apply per-intent side effects after the response is generated.
@@ -957,8 +951,10 @@ final class SessionCoordinator {
     }
 
     /// Drive the state machine out of `.speaking` when the synthesizer
-    /// finishes or is cancelled. The `returnTo` carried in the speaking
-    /// payload picks tap-to-talk's idle or conversation mode's listening.
+    /// finishes or is cancelled. The `followUp` carried in the speaking
+    /// payload routes either to a rest state (tap-to-talk's idle,
+    /// conversation mode's listening) or onward to `.disambiguating`
+    /// when a disambig prompt just finished.
     private func handle(tts event: TTSEvent) async {
         logger.debug("tts: \(String(describing: event))")
         #if DEBUG
@@ -967,17 +963,16 @@ final class SessionCoordinator {
 
         switch event {
         case .finished, .cancelled:
-            if case .active(.speaking(_, let returnTo)) = stateMachine.currentState {
-                // A disambiguation prompt (or its retry) was just spoken —
-                // land in `.disambiguating` so the panel renders, instead
-                // of dropping back to rest and losing the suspended intent.
-                if let pending = stateMachine.context.pendingDisambiguation {
+            if case .active(.speaking(_, let followUp)) = stateMachine.currentState {
+                switch followUp {
+                case .rest(let restState):
+                    stateMachine.transition(to: dialogState(forRest: restState))
+                case .disambiguate(let pending):
                     stateMachine.transition(to: .active(.disambiguating(
                         suspendedIntent: pending.suspendedIntent,
-                        candidates: pending.candidates
+                        candidates: pending.candidates,
+                        surface: pending.surface
                     )))
-                } else {
-                    stateMachine.transition(to: dialogState(forRest: returnTo))
                 }
             }
         default:

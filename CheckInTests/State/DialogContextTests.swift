@@ -88,35 +88,6 @@ struct DialogContextTests {
         #expect(ctx.recentRedirects.first == "rd2")
     }
 
-    // MARK: - pendingDisambiguation (the side-channel Phase 3 removes)
-    //
-    // These tests pin the current shape so Phase 3's rewrite can prove it
-    // preserves behavior — every write site, every read site, every clear.
-    // When Phase 3 lands, these tests get rewritten to assert the
-    // SpeakingFollowUp shape instead. That's the safety-net handoff.
-
-    @Test func pendingDisambiguationDefaultsToNil() {
-        let ctx = DialogContext()
-        #expect(ctx.pendingDisambiguation == nil)
-    }
-
-    @Test func pendingDisambiguationCarriesSuspendedIntentAndCandidates() {
-        var ctx = DialogContext()
-        let candidates = [
-            Candidate(label: "Tony Smith", entityRef: "a"),
-            Candidate(label: "Tony Jones", entityRef: "b")
-        ]
-        let pending = PendingDisambiguation(
-            suspendedIntent: SuspendedIntent(utterance: "any from tony", intent: "filter"),
-            surface: "Tony",
-            candidates: candidates
-        )
-        ctx.pendingDisambiguation = pending
-        #expect(ctx.pendingDisambiguation?.candidates.count == 2)
-        #expect(ctx.pendingDisambiguation?.surface == "Tony")
-        #expect(ctx.pendingDisambiguation?.suspendedIntent.utterance == "any from tony")
-    }
-
     @Test func disambiguationFailedAttemptsDefaultsToZero() {
         let ctx = DialogContext()
         #expect(ctx.disambiguationFailedAttempts == 0)
