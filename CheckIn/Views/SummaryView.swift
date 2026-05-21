@@ -15,6 +15,8 @@ struct SummaryView: View {
     var stateMachine: StateMachine
     var authService: AuthService
 
+    @AppStorage(AppStorageKey.voiceEnabled) private var voiceEnabled: Bool = true
+
     var body: some View {
         ZStack {
             Brand.bg.ignoresSafeArea()
@@ -144,7 +146,14 @@ struct SummaryView: View {
 
     // MARK: - Voice area (caption + mic)
 
+    @ViewBuilder
     private var voiceArea: some View {
+        if voiceEnabled {
+            voiceAreaContent
+        }
+    }
+
+    private var voiceAreaContent: some View {
         VStack(spacing: 14) {
             // The disambig panel renders as soon as the disambig prompt
             // starts speaking, not after `.disambiguating` is entered.

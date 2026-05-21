@@ -20,6 +20,7 @@ struct ContentView: View {
 
     @AppStorage(AppStorageKey.hasCompletedOnboarding) private var hasCompletedOnboarding: Bool = false
     @AppStorage(AppStorageKey.listeningMode) private var listeningMode: String = "tapToTalk"
+    @AppStorage(AppStorageKey.voiceEnabled) private var voiceEnabled: Bool = true
 
     var body: some View {
         Group {
@@ -57,14 +58,16 @@ struct ContentView: View {
     }
 
     /// Land the user in onboarding (first run) or active (returning user).
-    /// Conversation mode opens directly to `.listening`.
+    /// Conversation mode opens directly to `.listening` — but only when
+    /// voice commands are enabled. Voice off forces tap-to-talk rest
+    /// semantics regardless of the stored listening-mode preference.
     private func bootstrapAfterAuth() {
         if !hasCompletedOnboarding {
             stateMachine.transition(to: .onboarding(.welcome))
         } else {
-            let rest: ActiveSubstate = (listeningMode == "conversation") ? .listening : .idle
-            stateMachine.preferredRestState = (listeningMode == "conversation") ? .listening : .idle
-            stateMachine.transition(to: .active(rest))
+            let conversation = voiceEnabled && listeningMode == "conversation"
+            stateMachine.preferredRestState = conversation ? .listening : .idle
+            stateMachine.transition(to: .active(conversation ? .listening : .idle))
         }
     }
 }
