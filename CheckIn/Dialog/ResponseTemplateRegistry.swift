@@ -401,6 +401,12 @@ enum ResponseTemplateRegistry {
     static func detectDomain(_ utterance: String) -> SummaryDomain {
         let lower = utterance.lowercased()
 
+        // Teams-flavored phrases that also contain "messages" — without
+        // this early-out the substring counter sees both lanes and
+        // falls to .all. Bare "messages" still pegs to Outlook below.
+        let teamsPhrases = ["chat messages", "teams messages", "pending messages"]
+        if teamsPhrases.contains(where: { lower.contains($0) }) { return .chat }
+
         let emailHits = ["email", "mail", "unread", "inbox",
                          "message", "messages"].contains { lower.contains($0) }
         let chatHits = ["chat", "chats", "teams"].contains { lower.contains($0) }

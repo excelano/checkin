@@ -127,6 +127,38 @@ struct ResponseTemplateRegistryTests {
         #expect(ResponseTemplateRegistry.detectDomain("anything new") == .all)
     }
 
+    // The "messages" token alone routes to Outlook (the dominant register
+    // in M365 voice queries). Teams-flavored phrasings that contain
+    // "messages" route to Teams; Outlook-flavored phrasings stay Outlook.
+
+    @Test func detectDomainBareMessagesPegToEmail() {
+        #expect(ResponseTemplateRegistry.detectDomain("how many messages do I have") == .email)
+    }
+
+    @Test func detectDomainEmailMessagesPegToEmail() {
+        #expect(ResponseTemplateRegistry.detectDomain("how many email messages") == .email)
+    }
+
+    @Test func detectDomainUnreadMessagesPegToEmail() {
+        #expect(ResponseTemplateRegistry.detectDomain("how many unread messages") == .email)
+    }
+
+    @Test func detectDomainNewMessagesPegToEmail() {
+        #expect(ResponseTemplateRegistry.detectDomain("any new messages") == .email)
+    }
+
+    @Test func detectDomainChatMessagesPegToChat() {
+        #expect(ResponseTemplateRegistry.detectDomain("how many chat messages") == .chat)
+    }
+
+    @Test func detectDomainTeamsMessagesPegToChat() {
+        #expect(ResponseTemplateRegistry.detectDomain("how many teams messages") == .chat)
+    }
+
+    @Test func detectDomainPendingMessagesPegToChat() {
+        #expect(ResponseTemplateRegistry.detectDomain("how many pending messages") == .chat)
+    }
+
     // MARK: - Summary phrasing
 
     @Test func summarySentenceHandlesZeroUnread() {
