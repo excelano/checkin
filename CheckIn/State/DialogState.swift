@@ -73,10 +73,13 @@ enum RestState: Equatable {
 /// where the resume path lands — filter goes back through the response
 /// generator with the picked sender narrowing the summary; reply goes
 /// back through IntentExecutor so the chosen sender's address is bound
-/// into the Outlook compose URL.
+/// into the Outlook compose URL; mutation goes through the executor's
+/// mutation path so the picked sender's emails resolve to target IDs
+/// and a `.confirming` prompt fires.
 enum DisambigOrigin: Equatable {
     case filter
     case reply
+    case mutation(MutationKind)
 }
 
 /// A user intent suspended while the system disambiguates an ambiguous

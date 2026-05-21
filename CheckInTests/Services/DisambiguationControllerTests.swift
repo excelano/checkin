@@ -4,6 +4,7 @@
 // Built with AI assistance (Claude, Anthropic)
 
 import Testing
+import Foundation
 @testable import CheckIn
 
 /// Pins the disambiguation flow at the controller level. Same scenarios
@@ -23,6 +24,10 @@ struct DisambiguationControllerTests {
                                                          origin: .filter)
     private static let replySuspended = SuspendedIntent(utterance: "reply to tony",
                                                         origin: .reply)
+    private static let mutationSuspended = SuspendedIntent(
+        utterance: "mark tony's email as read",
+        origin: .mutation(.markRead)
+    )
 
     private static func enterDisambiguating(_ sm: StateMachine,
                                             preferred: RestState = .idle,
@@ -214,6 +219,45 @@ struct DisambiguationControllerTests {
             #expect(response.text == ResponseTemplateRegistry.replyUnknownSender("Tony Smith"))
         } else {
             Issue.record("expected .speaking after reply resume, got \(sm.currentState)")
+        }
+    }
+
+    // MARK: - resume (mutation origin)
+
+    @Test func resumeWithMutationOriginRoutesThroughProcessing() {
+        let (sm, controller, _) = Self.makeController()
+        Self.enterDisambiguating(sm, suspended: Self.mutationSuspended)
+        controller.resume(with: Self.tonys[0])
+        #expect(sm.currentState == .active(.processing(.thinking)))
+    }
+
+    @Test func resumeWithMutationOriginLandsInConfirmingWhenSenderHasEmail() async {
+        // Set up a summary so handleMutation finds Tony Smith's email
+        // and builds a PendingMutation. The resume path should land in
+        // .speaking(_, .confirm(pending)) carrying the mutation kind.
+        let (sm, controller, _) = Self.makeController()
+        let email = Email(id: "abc", subject: "Hi", from: "Tony Smith",
+                          fromAddress: "tony@example.com",
+                          preview: "", received: Date())
+        let summary = CheckInSummary(meeting: nil, emails: [email], chats: [],
+                                     emailError: nil, chatError: nil, teamsEnabled: true)
+        sm.updateContext { $0.summary = summary }
+        Self.enterDisambiguating(sm, suspended: Self.mutationSuspended)
+        controller.resume(with: Self.tonys[0])
+        // completeMutationTurn is synchronous in its happy-path body
+        // (Task only handles utteranceLog.record), so .speaking should
+        // appear without a wait — but allow a tick for the spawned Task.
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        if case .active(.speaking(let response, let followUp)) = sm.currentState {
+            #expect(response.category == .confirmation)
+            if case .confirm(let pending) = followUp {
+                #expect(pending.kind == .markRead)
+                #expect(pending.targets == ["abc"])
+            } else {
+                Issue.record("expected .confirm follow-up, got \(followUp)")
+            }
+        } else {
+            Issue.record("expected .speaking after mutation resume, got \(sm.currentState)")
         }
     }
 

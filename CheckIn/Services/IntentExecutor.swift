@@ -7,24 +7,32 @@ import Foundation
 import os
 
 /// Owns the post-classification side effects for the intents that need to
-/// fire a deep link or override the base spoken response. `SessionCoordinator`
-/// calls `resolveSideEffects` after the response generator builds its
-/// baseline; the executor either returns the baseline unchanged, overrides
-/// it with an open/reply/join outcome, or coerces the rest state for `.exit`.
+/// fire a deep link, write to Microsoft Graph, or override the base spoken
+/// response. `SessionCoordinator` calls `resolveSideEffects` after the
+/// response generator builds its baseline; the executor either returns the
+/// baseline unchanged, overrides it with an open/reply/join outcome, or
+/// coerces the rest state for `.exit`. Mutations take a separate path
+/// (`handleMutation` → `.confirming` → `executeMutation`) so every write
+/// passes through the confirmation gate.
 ///
-/// URL opening is injected as a closure so the deep-link surface is
-/// testable without a real `UIApplication`.
+/// URL opening and Graph mutation are injected as closures so the
+/// deep-link surface and the Graph write surface are testable without a
+/// real `UIApplication` or `URLSession`.
 @MainActor
 final class IntentExecutor {
     private let entityMatcher: any EntityMatcher
     private let urlOpener: (URL) async -> Bool
+    private let mutationDispatcher: (MutationKind, [String]) async -> Result<Void, Error>
 
     private let logger = Logger(subsystem: "com.excelano.checkin", category: "executor")
 
     init(entityMatcher: any EntityMatcher,
-         urlOpener: @escaping (URL) async -> Bool) {
+         urlOpener: @escaping (URL) async -> Bool,
+         mutationDispatcher: @escaping (MutationKind, [String]) async -> Result<Void, Error>
+            = { _, _ in .success(()) }) {
         self.entityMatcher = entityMatcher
         self.urlOpener = urlOpener
+        self.mutationDispatcher = mutationDispatcher
     }
 
     /// Apply per-intent side effects after the response is generated.
@@ -347,6 +355,107 @@ final class IntentExecutor {
                                         preferredSender: preferredSender)
         let base = SpokenResponse(text: "", category: .answer)
         return (outcome.spoken ?? base, defaultRest)
+    }
+
+    // MARK: - Mutations
+
+    /// What `handleMutation` returns: either a pending mutation ready to
+    /// route through `.speaking(_, .confirm)` → `.confirming`, or a
+    /// refusal that goes straight to `.speaking(_, .rest)`. Mirrors
+    /// `OpenOutcome` but split because the success path here doesn't
+    /// fire an immediate side effect — the write waits on the user's yes.
+    struct MutationOutcome {
+        let pending: PendingMutation?
+        let refusal: SpokenResponse?
+    }
+
+    /// Build a `PendingMutation` from the utterance. Resolves the sender
+    /// via the entity matcher, narrows the unread set to that sender,
+    /// and picks the latest email as the target. Bulk variants land in
+    /// Phase 7 with a different shape (filter-then-iterate). When called
+    /// from the disambig resume path `preferredSender` is the canonical
+    /// the user picked; matching is skipped.
+    ///
+    /// Returns a refusal when:
+    /// - no sender extracts from the utterance (pronoun-only phrasings),
+    /// - the named sender doesn't match anyone in the unread set,
+    /// - the resolved email has no usable ID (shouldn't happen but guarded).
+    func handleMutation(kind: MutationKind,
+                        utterance: String,
+                        context: DialogContext,
+                        preferredSender: String? = nil) -> MutationOutcome {
+        let emails = context.summary?.emails ?? []
+
+        let canonical: String
+        let surface: String
+
+        if let pref = preferredSender {
+            canonical = pref
+            surface = pref
+        } else {
+            let matches = entityMatcher.match(text: utterance,
+                                              domain: .person,
+                                              context: context)
+            if matches.isEmpty {
+                // Pronoun-only utterance ("mark this as read"). The voice
+                // surface doesn't yet carry a strong-enough referent for
+                // safe mutations; ask for a sender instead of guessing.
+                return MutationOutcome(
+                    pending: nil,
+                    refusal: SpokenResponse(
+                        text: ResponseTemplateRegistry.mutationNoSender,
+                        category: .answer))
+            }
+            var seen = Set<String>()
+            let distinct: [String] = matches.compactMap {
+                seen.insert($0.canonical).inserted ? $0.canonical : nil
+            }
+            canonical = distinct[0]
+            surface = matches.first?.surface ?? canonical
+        }
+
+        let candidates = emails.filter {
+            $0.from.localizedCaseInsensitiveCompare(canonical) == .orderedSame
+        }
+        guard let latest = candidates.first else {
+            return MutationOutcome(
+                pending: nil,
+                refusal: SpokenResponse(
+                    text: ResponseTemplateRegistry.openNotFound(surface),
+                    category: .answer))
+        }
+
+        let description = ResponseTemplateRegistry.mutationDescription(
+            kind: kind, sender: canonical)
+        let pending = PendingMutation(kind: kind,
+                                      targets: [latest.id],
+                                      description: description)
+        return MutationOutcome(pending: pending, refusal: nil)
+    }
+
+    /// Execute the confirmed mutation against Graph via the injected
+    /// dispatcher. Success returns a `.confirmation`-category response
+    /// with the success template; failure returns a generic `.error`
+    /// (the underlying error rides in the debug log, not the speech).
+    func executeMutation(_ mutation: PendingMutation) async -> SpokenResponse {
+        let result = await mutationDispatcher(mutation.kind, mutation.targets)
+        switch result {
+        case .success:
+            #if DEBUG
+            print("[mutation] success kind=\(mutation.kind) targets=\(mutation.targets)")
+            #endif
+            return SpokenResponse(
+                text: ResponseTemplateRegistry.successAnnouncement(mutation.description),
+                category: .confirmation)
+        case .failure(let error):
+            logger.error("mutation failed: \(error.localizedDescription, privacy: .public)")
+            #if DEBUG
+            print("[mutation] failed kind=\(mutation.kind) error=\(error.localizedDescription)")
+            #endif
+            return SpokenResponse(
+                text: ResponseTemplateRegistry.mutationFailed,
+                category: .error)
+        }
     }
 
     // MARK: - Join meeting

@@ -32,6 +32,12 @@ enum Intent: Hashable {
     case no
     case ordinalSelection  // "the first", "number two"
 
+    // Mutations — every one goes through the `.confirming` gate before
+    // any write reaches Graph.
+    case markRead
+    case flag
+    case delete
+
     /// In-scope subject (calendar, email, chats) but the requested action
     /// isn't a launch voice capability. Sub-kind selects the redirect pool.
     case inScopeUnsupported(UnsupportedKind)

@@ -116,6 +116,9 @@ private func encodeIntent(_ intent: Intent) -> String {
     case .yes: return "yes"
     case .no: return "no"
     case .ordinalSelection: return "ordinalSelection"
+    case .markRead: return "markRead"
+    case .flag: return "flag"
+    case .delete: return "delete"
     case .inScopeUnsupported(let kind):
         switch kind {
         case .readContent: return "inScopeUnsupported.readContent"

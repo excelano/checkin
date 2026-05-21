@@ -38,6 +38,27 @@ struct CheckInApp: App {
         #endif
         _authService = State(initialValue: auth)
         _stateMachine = State(initialValue: sm)
+        // Bind mutation kinds to GraphClient methods. The dispatcher
+        // closure is invoked from `IntentExecutor.executeMutation` after
+        // the user confirms; the executor itself stays free of the
+        // Graph dependency for testability.
+        let mutationDispatcher: (MutationKind, [String]) async -> Result<Void, Error> = { kind, ids in
+            do {
+                for id in ids {
+                    switch kind {
+                    case .markRead, .bulkMarkRead:
+                        try await graph.markEmailRead(id: id)
+                    case .flag, .bulkFlag:
+                        try await graph.flagEmail(id: id)
+                    case .delete, .bulkDelete:
+                        try await graph.softDeleteEmail(id: id)
+                    }
+                }
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
         self.coordinator = SessionCoordinator(
             stateMachine: sm,
             speechService: speech,
@@ -47,7 +68,8 @@ struct CheckInApp: App {
             intentClassifier: classifier,
             responseGenerator: generator,
             entityMatcher: entityMatcher,
-            utteranceLog: utteranceLog
+            utteranceLog: utteranceLog,
+            mutationDispatcher: mutationDispatcher
         )
     }
 

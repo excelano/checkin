@@ -35,6 +35,34 @@ struct IntentExecutorTests {
         return (executor, opener)
     }
 
+    /// Mutation tests need to inject a scripted dispatcher. Recorder
+    /// captures each (kind, ids) pair the executor would have shipped to
+    /// Graph and supplies a scriptable success / failure result.
+    private final class MutationRecorder {
+        struct Call: Equatable {
+            let kind: MutationKind
+            let ids: [String]
+        }
+        var calls: [Call] = []
+        var result: Result<Void, Error> = .success(())
+
+        func dispatcher(_ kind: MutationKind, _ ids: [String]) async -> Result<Void, Error> {
+            calls.append(Call(kind: kind, ids: ids))
+            return result
+        }
+    }
+
+    private static func makeMutationExecutor(matcher: ScriptedEntityMatcher = .init(),
+                                             recorder: MutationRecorder = MutationRecorder())
+        -> (IntentExecutor, MutationRecorder) {
+        let executor = IntentExecutor(
+            entityMatcher: matcher,
+            urlOpener: { _ in true },
+            mutationDispatcher: { kind, ids in await recorder.dispatcher(kind, ids) }
+        )
+        return (executor, recorder)
+    }
+
     private static func meeting(joinUrl: String?) -> Meeting {
         Meeting(subject: "Standup", organizer: "Tony",
                 location: "", start: Date(), end: Date(),
@@ -389,5 +417,116 @@ struct IntentExecutorTests {
             defaultRest: .idle
         )
         #expect(opener.openedURLs.first == DeepLinkService.passthrough(webUrl))
+    }
+
+    // MARK: - Mutations
+
+    @Test func handleMutationWithPreferredSenderBuildsPending() async {
+        let (executor, recorder) = Self.makeMutationExecutor()
+        let target = Self.email(from: "Tony Smith")
+        let summary = Self.summary(emails: [target])
+        let outcome = executor.handleMutation(
+            kind: .markRead,
+            utterance: "mark tony's email as read",
+            context: Self.context(with: summary),
+            preferredSender: "Tony Smith"
+        )
+        #expect(outcome.pending != nil)
+        #expect(outcome.refusal == nil)
+        #expect(outcome.pending?.kind == .markRead)
+        #expect(outcome.pending?.targets == [target.id])
+        #expect(outcome.pending?.description.contains("Tony Smith") == true)
+        #expect(recorder.calls.isEmpty) // no Graph call yet
+    }
+
+    @Test func handleMutationRefusesWithNoSender() async {
+        let (executor, _) = Self.makeMutationExecutor()
+        let summary = Self.summary(emails: [Self.email(from: "Tony Smith")])
+        let outcome = executor.handleMutation(
+            kind: .delete,
+            utterance: "delete this",
+            context: Self.context(with: summary)
+        )
+        #expect(outcome.pending == nil)
+        #expect(outcome.refusal?.text == ResponseTemplateRegistry.mutationNoSender)
+    }
+
+    @Test func handleMutationRefusesWhenNamedSenderHasNoEmail() async {
+        // handleMutation names the surface (what the user said) back to
+        // the user, not the canonical. The matcher resolved "bob" to
+        // "Bob Jones" but no Bob Jones is in the unread set, so the
+        // refusal echoes the surface form for honesty about what was
+        // heard versus what was understood.
+        var matcher = ScriptedEntityMatcher()
+        matcher.personForText["flag bob's email"] = [
+            EntityMatch(surface: "bob", canonical: "Bob Jones", confidence: 0.9)
+        ]
+        let (executor, _) = Self.makeMutationExecutor(matcher: matcher)
+        let summary = Self.summary(emails: [Self.email(from: "Tony Smith")])
+        let outcome = executor.handleMutation(
+            kind: .flag,
+            utterance: "flag bob's email",
+            context: Self.context(with: summary)
+        )
+        #expect(outcome.pending == nil)
+        #expect(outcome.refusal?.text.contains("bob") == true)
+    }
+
+    @Test func handleMutationPicksLatestWhenSenderHasMany() async {
+        // Multiple emails from same sender → mutation targets the first
+        // (Graph $orderby receivedDateTime desc puts latest at index 0).
+        let (executor, _) = Self.makeMutationExecutor()
+        let latest = Self.email(from: "Tony Smith")
+        let older = Self.email(from: "Tony Smith")
+        let summary = Self.summary(emails: [latest, older])
+        let outcome = executor.handleMutation(
+            kind: .delete,
+            utterance: "delete tony's email",
+            context: Self.context(with: summary),
+            preferredSender: "Tony Smith"
+        )
+        #expect(outcome.pending?.targets == [latest.id])
+        #expect(outcome.pending?.targets.count == 1)
+    }
+
+    @Test func executeMutationSuccessReturnsConfirmationCategory() async {
+        let recorder = MutationRecorder()
+        recorder.result = .success(())
+        let (executor, _) = Self.makeMutationExecutor(recorder: recorder)
+        let pending = PendingMutation(kind: .markRead,
+                                      targets: ["msg-1"],
+                                      description: "mark the latest email from Tony as read")
+        let response = await executor.executeMutation(pending)
+        #expect(response.category == .confirmation)
+        #expect(response.text == ResponseTemplateRegistry.successAnnouncement(pending.description))
+        #expect(recorder.calls.count == 1)
+        #expect(recorder.calls.first == MutationRecorder.Call(kind: .markRead, ids: ["msg-1"]))
+    }
+
+    @Test func executeMutationFailureReturnsErrorCategory() async {
+        struct StubError: Error {}
+        let recorder = MutationRecorder()
+        recorder.result = .failure(StubError())
+        let (executor, _) = Self.makeMutationExecutor(recorder: recorder)
+        let pending = PendingMutation(kind: .delete,
+                                      targets: ["msg-2"],
+                                      description: "delete the latest email from Tony")
+        let response = await executor.executeMutation(pending)
+        #expect(response.category == .error)
+        #expect(response.text == ResponseTemplateRegistry.mutationFailed)
+        #expect(recorder.calls.count == 1)
+    }
+
+    @Test func executeMutationDispatchesAllTargets() async {
+        // Bulk variants ship many IDs in a single dispatcher call. Phase
+        // 6 doesn't create those yet, but the executor must pass through
+        // whatever `targets` carries.
+        let recorder = MutationRecorder()
+        let (executor, _) = Self.makeMutationExecutor(recorder: recorder)
+        let pending = PendingMutation(kind: .bulkMarkRead,
+                                      targets: ["a", "b", "c"],
+                                      description: "mark three emails as read")
+        _ = await executor.executeMutation(pending)
+        #expect(recorder.calls.first?.ids == ["a", "b", "c"])
     }
 }

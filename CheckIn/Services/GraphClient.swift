@@ -87,6 +87,33 @@ final class GraphClient {
         }
     }
 
+    // MARK: - Email mutations
+
+    /// Mark a single message read. Mail.ReadWrite scope required.
+    /// Idempotent — re-marking an already-read message is a no-op on
+    /// Graph's side. Caller must confirm with the user before calling.
+    func markEmailRead(id: String) async throws {
+        try await patch("/me/messages/\(id)", body: MarkReadBody(isRead: true))
+    }
+
+    /// Add a follow-up flag to a single message. Mail.ReadWrite scope
+    /// required. Already-flagged messages can be re-flagged without
+    /// changing state. Caller must confirm with the user before calling.
+    func flagEmail(id: String) async throws {
+        try await patch("/me/messages/\(id)",
+                        body: FlagBody(flag: FlagStatusBody(flagStatus: "flagged")))
+    }
+
+    /// Move a single message to Deleted Items. Mail.ReadWrite scope
+    /// required. The `deleteditems` destination is one of Graph's
+    /// well-known folder identifiers; recoverable from the user's
+    /// Outlook Deleted Items folder until they empty it. Caller must
+    /// confirm with the user before calling.
+    func softDeleteEmail(id: String) async throws {
+        _ = try await post("/me/messages/\(id)/move",
+                           body: MoveBody(destinationId: "deleteditems"))
+    }
+
     // MARK: - Teams
 
     /// Fetch pending chats: chats where someone else sent the last message within 24 hours.
@@ -333,4 +360,22 @@ private struct ChatFromResponse: Decodable {
 private struct ChatUserResponse: Decodable {
     let id: String
     let displayName: String
+}
+
+// MARK: - Mutation Request Bodies
+
+private struct MarkReadBody: Encodable {
+    let isRead: Bool
+}
+
+private struct FlagBody: Encodable {
+    let flag: FlagStatusBody
+}
+
+private struct FlagStatusBody: Encodable {
+    let flagStatus: String
+}
+
+private struct MoveBody: Encodable {
+    let destinationId: String
 }

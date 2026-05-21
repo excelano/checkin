@@ -40,7 +40,9 @@ final class DisambiguationController {
 
     /// User picked a candidate (touch tap or voice match). Branch on the
     /// suspended intent's origin: filter narrows the summary response;
-    /// reply binds the chosen sender's address into an Outlook compose URL.
+    /// reply binds the chosen sender's address into an Outlook compose
+    /// URL; mutation resolves the sender's latest email and stages a
+    /// `.confirming` prompt.
     func resume(with candidate: Candidate) {
         guard case .active(.disambiguating(let suspended, _, _))
                 = stateMachine.currentState else { return }
@@ -59,6 +61,10 @@ final class DisambiguationController {
             case .reply:
                 await self.completeReplyTurn(utterance: suspended.utterance,
                                              sender: candidate.entityRef)
+            case .mutation(let kind):
+                self.completeMutationTurn(utterance: suspended.utterance,
+                                          sender: candidate.entityRef,
+                                          kind: kind)
             }
         }
     }
@@ -240,6 +246,72 @@ final class DisambiguationController {
                 stateMachine.transition(to: .active(.speaking(
                     response: response,
                     followUp: .rest(returnTo))))
+            }
+        }
+    }
+
+    /// Resume path for mutation disambig. Builds a `PendingMutation`
+    /// against the user's picked sender and stages the confirmation
+    /// prompt. No Graph write fires here — that happens later when the
+    /// user accepts via the `.confirming` panel.
+    private func completeMutationTurn(utterance: String,
+                                      sender: String,
+                                      kind: MutationKind) {
+        let intentForLog: Intent
+        switch kind {
+        case .markRead, .bulkMarkRead: intentForLog = .markRead
+        case .flag, .bulkFlag:         intentForLog = .flag
+        case .delete, .bulkDelete:     intentForLog = .delete
+        }
+        let classified = ClassifiedIntent(intent: intentForLog, confidence: 1.0)
+        let outcome = intentExecutor.handleMutation(
+            kind: kind,
+            utterance: utterance,
+            context: stateMachine.context,
+            preferredSender: sender
+        )
+
+        let response: SpokenResponse
+        let followUp: SpeakingFollowUp
+        if let pending = outcome.pending {
+            let promptText = ResponseTemplateRegistry.confirmationPrompt(
+                pending.description)
+            response = SpokenResponse(text: promptText, category: .confirmation)
+            followUp = .confirm(pending)
+        } else {
+            response = outcome.refusal
+                ?? SpokenResponse(text: "", category: .answer)
+            followUp = .rest(stateMachine.preferredRestState)
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.utteranceLog.record(
+                utterance: utterance,
+                classified: classified,
+                ranking: [],
+                response: response)
+        }
+        stateMachine.recordTurn(
+            user: utterance,
+            system: response.text,
+            category: response.category)
+
+        #if DEBUG
+        if let p = outcome.pending {
+            print("[disambig] resumed mutation kind=\(kind) targets=\(p.targets) sender=\(sender)")
+        } else {
+            print("[disambig] resumed mutation refused kind=\(kind) sender=\(sender)")
+        }
+        #endif
+
+        if case .active(.processing) = stateMachine.currentState {
+            if response.text.isEmpty {
+                stateMachine.transition(to: dialogState(forRest: stateMachine.preferredRestState))
+            } else {
+                stateMachine.transition(to: .active(.speaking(
+                    response: response,
+                    followUp: followUp)))
             }
         }
     }

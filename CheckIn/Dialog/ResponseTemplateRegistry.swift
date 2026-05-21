@@ -278,6 +278,37 @@ enum ResponseTemplateRegistry {
 
     static let confirmationCancelled: String = "Cancelled."
 
+    /// Speakable verb phrase for a pending single-email mutation. Carried
+    /// inside `PendingMutation.description` and read back in both the
+    /// confirmation prompt and the success ack. "Latest" anchors the
+    /// scope so the user knows exactly which message is in play even when
+    /// the sender has several in the unread set.
+    static func mutationDescription(kind: MutationKind, sender: String) -> String {
+        switch kind {
+        case .markRead:
+            return "mark the latest email from \(sender) as read"
+        case .flag:
+            return "flag the latest email from \(sender)"
+        case .delete:
+            return "move the latest email from \(sender) to Deleted Items"
+        case .bulkMarkRead, .bulkFlag, .bulkDelete:
+            // Bulk variants land in Phase 7 with count-aware phrasing.
+            return ""
+        }
+    }
+
+    /// Spoken when a `.markRead` / `.flag` / `.delete` turn classifies
+    /// but no sender is in scope or the utterance only carries a pronoun
+    /// ("mark this as read"). The voice surface doesn't yet carry a
+    /// strong-enough "this" referent for safe mutations, so the right
+    /// answer is to refuse and ask for a sender.
+    static let mutationNoSender: String = "Which email?"
+
+    /// Spoken when a mutation's GraphClient call throws. The category
+    /// will be `.error`; the underlying error description rides in the
+    /// debug log, not the speech, so the user doesn't hear a stack trace.
+    static let mutationFailed: String = "Couldn't do that. Try again?"
+
     // MARK: - Filter narrowing
 
     /// Spoken when `.filter` fires with a "from <X>" surface that the

@@ -47,7 +47,9 @@ final class SessionCoordinator {
          intentClassifier: any IntentClassifier,
          responseGenerator: any ResponseGenerator,
          entityMatcher: any EntityMatcher,
-         utteranceLog: any UtteranceLog) {
+         utteranceLog: any UtteranceLog,
+         mutationDispatcher: @escaping (MutationKind, [String]) async -> Result<Void, Error>
+            = { _, _ in .success(()) }) {
         self.stateMachine = stateMachine
         self.speechService = speechService
         self.ttsService = ttsService
@@ -62,7 +64,8 @@ final class SessionCoordinator {
             entityMatcher: entityMatcher,
             urlOpener: { url in
                 await UIApplication.shared.open(url)
-            }
+            },
+            mutationDispatcher: mutationDispatcher
         )
         self.disambiguationController = DisambiguationController(
             stateMachine: stateMachine,
@@ -226,7 +229,26 @@ final class SessionCoordinator {
         switch intent {
         case .summary, .filter, .refresh: return true
         case .reply, .join, .timeQuery: return true
+        case .markRead, .flag, .delete: return true
         default: return false
+        }
+    }
+
+    /// True when the intent is a single-email mutation. Bulk variants
+    /// will join this set in Phase 7.
+    private func isMutation(_ intent: Intent) -> Bool {
+        switch intent {
+        case .markRead, .flag, .delete: return true
+        default: return false
+        }
+    }
+
+    private func mutationKind(_ intent: Intent) -> MutationKind? {
+        switch intent {
+        case .markRead: return .markRead
+        case .flag:     return .flag
+        case .delete:   return .delete
+        default:        return nil
         }
     }
 
@@ -356,7 +378,14 @@ final class SessionCoordinator {
 
         switch resolution {
         case .needsDisambiguation(let surface, let candidates):
-            let origin: DisambigOrigin = (classified.intent == .reply) ? .reply : .filter
+            let origin: DisambigOrigin
+            if let kind = mutationKind(classified.intent) {
+                origin = .mutation(kind)
+            } else if classified.intent == .reply {
+                origin = .reply
+            } else {
+                origin = .filter
+            }
             let suspended = SuspendedIntent(utterance: update.text,
                                             origin: origin)
             let pending = PendingDisambiguation(suspendedIntent: suspended,
@@ -371,9 +400,14 @@ final class SessionCoordinator {
             #endif
 
         case .unknown(let name):
-            let text = (classified.intent == .reply)
-                ? ResponseTemplateRegistry.replyUnknownSender(name)
-                : ResponseTemplateRegistry.filterUnknownSender(name)
+            let text: String
+            if classified.intent == .reply {
+                text = ResponseTemplateRegistry.replyUnknownSender(name)
+            } else if isMutation(classified.intent) {
+                text = ResponseTemplateRegistry.openNotFound(name)
+            } else {
+                text = ResponseTemplateRegistry.filterUnknownSender(name)
+            }
             response = SpokenResponse(text: text, category: .answer)
             followUp = .rest(stateMachine.preferredRestState)
             #if DEBUG
@@ -381,21 +415,48 @@ final class SessionCoordinator {
             #endif
 
         case .resolved(let sender):
-            let baseResponse = responseGenerator.generate(
-                for: classified,
-                utterance: update.text,
-                resolvedSender: sender,
-                context: stateMachine.context
-            )
-            let result = await intentExecutor.resolveSideEffects(
-                classified: classified,
-                utterance: update.text,
-                baseResponse: baseResponse,
-                context: stateMachine.context,
-                defaultRest: stateMachine.preferredRestState
-            )
-            response = result.0
-            followUp = .rest(result.1)
+            if let kind = mutationKind(classified.intent) {
+                let outcome = intentExecutor.handleMutation(
+                    kind: kind,
+                    utterance: update.text,
+                    context: stateMachine.context,
+                    preferredSender: sender
+                )
+                if let pending = outcome.pending {
+                    let promptText = ResponseTemplateRegistry.confirmationPrompt(
+                        pending.description)
+                    response = SpokenResponse(text: promptText,
+                                              category: .confirmation)
+                    followUp = .confirm(pending)
+                } else {
+                    response = outcome.refusal
+                        ?? SpokenResponse(text: "", category: .answer)
+                    followUp = .rest(stateMachine.preferredRestState)
+                }
+                #if DEBUG
+                if let p = outcome.pending {
+                    print("[mutation] pending kind=\(p.kind) targets=\(p.targets) description=\"\(p.description)\"")
+                } else {
+                    print("[mutation] refused kind=\(kind)")
+                }
+                #endif
+            } else {
+                let baseResponse = responseGenerator.generate(
+                    for: classified,
+                    utterance: update.text,
+                    resolvedSender: sender,
+                    context: stateMachine.context
+                )
+                let result = await intentExecutor.resolveSideEffects(
+                    classified: classified,
+                    utterance: update.text,
+                    baseResponse: baseResponse,
+                    context: stateMachine.context,
+                    defaultRest: stateMachine.preferredRestState
+                )
+                response = result.0
+                followUp = .rest(result.1)
+            }
         }
 
         await utteranceLog.record(
@@ -453,7 +514,7 @@ final class SessionCoordinator {
 
     private func resolveSender(intent: Intent, text: String) -> SenderResolution {
         switch intent {
-        case .filter, .reply:
+        case .filter, .reply, .markRead, .flag, .delete:
             break
         default:
             return .resolved(nil)
@@ -526,22 +587,33 @@ final class SessionCoordinator {
     // MARK: - Confirmation
 
     /// User said yes to the pending mutation (touch Yes, voice .yes, or
-    /// equivalent). Phase 4 lays the plumbing: speak the success ack and
-    /// land in rest. Phase 6 wires Graph PATCH execution between the
-    /// accept and the success announcement so the ack reflects actual
-    /// mutation outcome rather than a placeholder.
+    /// equivalent). Routes the mutation through `IntentExecutor` →
+    /// the injected dispatcher → Microsoft Graph. The success or failure
+    /// SpokenResponse comes back from the executor; success plays the
+    /// confirmation earcon ahead of the announcement.
     func acceptConfirmation() {
         guard case .active(.confirming(let mutation))
                 = stateMachine.currentState else { return }
-        let response = SpokenResponse(
-            text: ResponseTemplateRegistry.successAnnouncement(mutation.description),
-            category: .confirmation)
-        stateMachine.recordTurn(user: "yes",
-                                system: response.text,
-                                category: response.category)
-        stateMachine.transition(to: .active(.speaking(
-            response: response,
-            followUp: .rest(stateMachine.preferredRestState))))
+        let pending = mutation
+        // Transition to processing while the Graph call is in flight so
+        // the UI shows the thinking indicator rather than holding the
+        // confirming panel through the round-trip.
+        stateMachine.transition(to: .active(.processing(.thinking)))
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.intentExecutor.executeMutation(pending)
+            if response.category == .confirmation {
+                self.audioController.play(.confirmation)
+            }
+            self.stateMachine.recordTurn(user: "yes",
+                                         system: response.text,
+                                         category: response.category)
+            if case .active(.processing) = self.stateMachine.currentState {
+                self.stateMachine.transition(to: .active(.speaking(
+                    response: response,
+                    followUp: .rest(self.stateMachine.preferredRestState))))
+            }
+        }
     }
 
     /// User said no / cancel. No Graph call regardless of phase; just a

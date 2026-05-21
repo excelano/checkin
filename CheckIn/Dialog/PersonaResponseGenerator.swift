@@ -62,6 +62,12 @@ struct PersonaResponseGenerator: ResponseGenerator {
             // no join URL, launch failure) or fires the deep-link silently.
             return SpokenResponse(text: "", category: .answer)
 
+        case .markRead, .flag, .delete:
+            // Mutations branch out before reaching the generator — the
+            // coordinator builds the confirmation prompt directly from
+            // the PendingMutation. This case exists for exhaustiveness.
+            return SpokenResponse(text: "", category: .answer)
+
         case .timeQuery:
             return timeQueryResponse(context: context)
 

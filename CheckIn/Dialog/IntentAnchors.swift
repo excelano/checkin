@@ -229,6 +229,44 @@ enum IntentAnchors {
             "the latest"
         ]),
 
+        // Mutations. Each anchor pool covers sender-named, pronoun, and
+        // bare phrasings. The executor refuses gracefully when no sender
+        // can be resolved (a "Which email?" prompt), so the pronoun
+        // variants don't fire false-positive writes.
+
+        (.markRead, [
+            "mark as read",
+            "mark this as read",
+            "mark it as read",
+            "mark tony's email as read",
+            "mark his email as read",
+            "mark her email as read",
+            "mark the email from tony as read",
+            "mark tony's message as read"
+        ]),
+
+        (.flag, [
+            "flag this",
+            "flag this email",
+            "flag it",
+            "flag tony's email",
+            "flag the email from tony",
+            "flag this for follow-up",
+            "flag this for followup",
+            "add a flag to tony's email"
+        ]),
+
+        (.delete, [
+            "delete this",
+            "delete this email",
+            "delete it",
+            "delete tony's email",
+            "delete the email from tony",
+            "trash this email",
+            "move this to deleted items",
+            "move this to trash"
+        ]),
+
         // In-scope-unsupported sub-categories. Each redirects to a
         // different touch path, so each gets its own anchor pool.
 
