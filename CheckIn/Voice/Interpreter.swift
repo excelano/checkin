@@ -22,12 +22,25 @@ struct PhraseInterpreter: Interpreter {
 
     func interpret(_ text: String) -> Command? {
         let normalized = normalize(text)
+
+        // Literal lookups for parameter-less phrases.
         switch normalized {
         case "refresh", "check", "check again":
             return .refresh
         default:
-            return nil
+            break
         }
+
+        // "mark email N as read" / "mark message N as read" / "mark email N read".
+        // The optional `as` covers both natural phrasings without exploding the
+        // table. Digit form only for now — word-form ("one", "two") can land
+        // alongside a number-word parser in a later step if needed.
+        if let match = normalized.firstMatch(of: #/^mark (?:email|message) (\d+)(?: as)? read$/#),
+           let n = Int(match.1) {
+            return .markRead(index: n)
+        }
+
+        return nil
     }
 
     private func normalize(_ text: String) -> String {
