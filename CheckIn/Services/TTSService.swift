@@ -89,7 +89,7 @@ final class AppleTTSService: NSObject, TTSService {
         // `@AppStorage` in `SettingsView` writes the same keys; reading here
         // means the next utterance picks up changes without an observer.
         let defaults = UserDefaults.standard
-        let voiceIdentifier = defaults.string(forKey: "voiceIdentifier") ?? ""
+        let voiceIdentifier = defaults.string(forKey: AppStorageKey.voiceIdentifier) ?? ""
         if !voiceIdentifier.isEmpty,
            let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) {
             utterance.voice = voice
@@ -101,7 +101,7 @@ final class AppleTTSService: NSObject, TTSService {
         // which is below `AVSpeechUtteranceMinimumSpeechRate`. Treat 0 as
         // "user hasn't touched the slider yet" and leave the utterance's
         // default rate in place.
-        let storedRate = defaults.double(forKey: "speechRate")
+        let storedRate = defaults.double(forKey: AppStorageKey.speechRate)
         if storedRate > 0 {
             utterance.rate = Float(storedRate)
         }

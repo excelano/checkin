@@ -34,3 +34,16 @@ enum Constants {
         enableTeams ? baseScopes + teamsScopes : baseScopes
     }
 }
+
+/// Single source of truth for `@AppStorage` / `UserDefaults` key names. The
+/// string values are wire-stable — renaming a case is a schema migration,
+/// not a rename refactor, because existing installs key off the value.
+enum AppStorageKey {
+    static let listeningMode = "listeningMode"
+    static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    static let voiceIdentifier = "voiceIdentifier"
+    static let speechRate = "speechRate"
+    static let verbosityFull = "verbosityFull"
+    static let customClientID = "customClientID"
+    static let customAuthority = "customAuthority"
+}

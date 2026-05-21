@@ -19,8 +19,8 @@ import Speech
 struct OnboardingFlow: View {
     var stateMachine: StateMachine
 
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
-    @AppStorage("listeningMode") private var listeningMode: String = "tapToTalk"
+    @AppStorage(AppStorageKey.hasCompletedOnboarding) private var hasCompletedOnboarding: Bool = false
+    @AppStorage(AppStorageKey.listeningMode) private var listeningMode: String = "tapToTalk"
 
     var body: some View {
         ZStack {

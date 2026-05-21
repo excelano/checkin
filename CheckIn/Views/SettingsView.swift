@@ -16,16 +16,16 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     // Voice
-    @AppStorage("voiceIdentifier") private var voiceIdentifier: String = ""
-    @AppStorage("speechRate") private var speechRate: Double = Double(AVSpeechUtteranceDefaultSpeechRate)
-    @AppStorage("verbosityFull") private var verbosityFull: Bool = false
+    @AppStorage(AppStorageKey.voiceIdentifier) private var voiceIdentifier: String = ""
+    @AppStorage(AppStorageKey.speechRate) private var speechRate: Double = Double(AVSpeechUtteranceDefaultSpeechRate)
+    @AppStorage(AppStorageKey.verbosityFull) private var verbosityFull: Bool = false
 
     // Listening Mode
-    @AppStorage("listeningMode") private var listeningMode: String = "tapToTalk"
+    @AppStorage(AppStorageKey.listeningMode) private var listeningMode: String = "tapToTalk"
 
     // Advanced
-    @AppStorage("customClientID") private var customClientID: String = ""
-    @AppStorage("customAuthority") private var customAuthority: String = ""
+    @AppStorage(AppStorageKey.customClientID) private var customClientID: String = ""
+    @AppStorage(AppStorageKey.customAuthority) private var customAuthority: String = ""
     @State private var showAdvancedExplainer = false
 
     @State private var showSignOutConfirm = false
