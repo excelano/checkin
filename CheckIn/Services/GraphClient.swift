@@ -71,7 +71,7 @@ final class GraphClient {
             "$filter": "isRead eq false",
             "$orderby": "receivedDateTime desc",
             "$top": "10",
-            "$select": "id,subject,from,bodyPreview,receivedDateTime"
+            "$select": "id,subject,from,bodyPreview,receivedDateTime,flag"
         ])
 
         return data.value.map { e in
@@ -82,7 +82,8 @@ final class GraphClient {
                 from: e.from.emailAddress.name,
                 fromAddress: e.from.emailAddress.address ?? "",
                 preview: e.bodyPreview,
-                received: received
+                received: received,
+                isFlagged: e.flag?.flagStatus == "flagged"
             )
         }
     }
@@ -102,6 +103,15 @@ final class GraphClient {
     func flagEmail(id: String) async throws {
         try await patch("/me/messages/\(id)",
                         body: FlagBody(flag: FlagStatusBody(flagStatus: "flagged")))
+    }
+
+    /// Clear the follow-up flag on a single message. Mail.ReadWrite scope
+    /// required. Idempotent — unflagging an unflagged message is a no-op
+    /// on Graph's side. The toggle entry point in `InboxActions` picks
+    /// between this and `flagEmail` based on the current state.
+    func unflagEmail(id: String) async throws {
+        try await patch("/me/messages/\(id)",
+                        body: FlagBody(flag: FlagStatusBody(flagStatus: "notFlagged")))
     }
 
     /// Move a single message to Deleted Items. Mail.ReadWrite scope
@@ -327,6 +337,11 @@ private struct EmailResponse: Decodable {
     let from: EmailFromResponse
     let bodyPreview: String
     let receivedDateTime: String
+    let flag: FlagResponse?
+}
+
+private struct FlagResponse: Decodable {
+    let flagStatus: String?
 }
 
 private struct EmailFromResponse: Decodable {

@@ -51,20 +51,43 @@ final class InboxActions {
         }
     }
 
-    /// Add a follow-up flag. Doesn't change the unread set, so there's no
-    /// row to remove or restore — the operation succeeds or fails silently
-    /// into the log.
-    func flag(emailId: String) async {
+    /// Toggle the follow-up flag. Optimistic — the flag indicator on the
+    /// row updates immediately, the Graph call runs in the background,
+    /// and a failure reverts the local state. The caller passes the
+    /// desired state rather than asking us to flip what we read, so
+    /// rapid double-swipes can't oscillate against stale state.
+    func setFlagged(_ flagged: Bool, emailId: String) async {
+        guard let original = currentEmail(emailId) else { return }
+        updateEmail(original.with(isFlagged: flagged))
         do {
-            try await graphClient.flagEmail(id: emailId)
+            if flagged {
+                try await graphClient.flagEmail(id: emailId)
+            } else {
+                try await graphClient.unflagEmail(id: emailId)
+            }
             #if DEBUG
-            print("[actions] flag ok id=\(emailId)")
+            print("[actions] setFlagged(\(flagged)) ok id=\(emailId)")
             #endif
         } catch {
-            logger.error("flag failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("setFlagged(\(flagged)) failed: \(error.localizedDescription, privacy: .public)")
             #if DEBUG
-            print("[actions] flag failed: \(error.localizedDescription)")
+            print("[actions] setFlagged(\(flagged)) failed: \(error.localizedDescription)")
             #endif
+            updateEmail(original)
+        }
+    }
+
+    private func currentEmail(_ emailId: String) -> Email? {
+        stateMachine.context.summary?.emails.first(where: { $0.id == emailId })
+    }
+
+    private func updateEmail(_ email: Email) {
+        guard let summary = stateMachine.context.summary else { return }
+        var emails = summary.emails
+        guard let idx = emails.firstIndex(where: { $0.id == email.id }) else { return }
+        emails[idx] = email
+        stateMachine.updateContext {
+            $0.summary = rebuilt(summary, withEmails: emails)
         }
     }
 

@@ -119,9 +119,10 @@ struct SummaryView: View {
                             }
                             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                 Button {
-                                    Task { await inboxActions.flag(emailId: email.id) }
+                                    Task { await inboxActions.setFlagged(!email.isFlagged, emailId: email.id) }
                                 } label: {
-                                    Label("Flag", systemImage: "flag")
+                                    Label(email.isFlagged ? "Unflag" : "Flag",
+                                          systemImage: email.isFlagged ? "flag.slash" : "flag")
                                 }
                                 .tint(.orange)
                             }
@@ -176,14 +177,23 @@ struct SummaryView: View {
 
     // MARK: - Tap actions
 
+    // Tap helpers below intentionally skip `canOpenURL` for HTTPS
+    // passthrough URLs. `canOpenURL` reliably answers for declared custom
+    // schemes (`msteams://`, `ms-outlook://` — see LSApplicationQueriesSchemes
+    // in Info.plist) but returns false for universal links like
+    // `https://teams.microsoft.com/...` even when iOS would route them to
+    // the installed app. Trust `open(_:)` instead and use its completion
+    // for the fallback.
+
     /// Meeting tap: open the Teams join link when the event carries one,
     /// otherwise fall back to Outlook calendar so the user lands somewhere
     /// useful instead of getting nothing.
     private func joinOrCalendar(_ meeting: Meeting) {
         if let urlString = meeting.joinUrl,
-           let url = DeepLinkService.passthrough(urlString),
-           UIApplication.shared.canOpenURL(url) {
-            UIApplication.shared.open(url)
+           let url = DeepLinkService.passthrough(urlString) {
+            UIApplication.shared.open(url) { ok in
+                if !ok { deepLink(DeepLinkService.outlookCalendar) }
+            }
             return
         }
         deepLink(DeepLinkService.outlookCalendar)
@@ -195,9 +205,10 @@ struct SummaryView: View {
     private func replyTo(_ email: Email) {
         if !email.fromAddress.isEmpty,
            let url = DeepLinkService.outlookReply(to: email.fromAddress,
-                                                  subject: email.subject),
-           UIApplication.shared.canOpenURL(url) {
-            UIApplication.shared.open(url)
+                                                  subject: email.subject) {
+            UIApplication.shared.open(url) { ok in
+                if !ok { deepLink(DeepLinkService.outlookInbox) }
+            }
             return
         }
         deepLink(DeepLinkService.outlookInbox)
@@ -207,9 +218,10 @@ struct SummaryView: View {
     /// specific chat), generic Teams launch otherwise.
     private func openChat(_ chat: ChatMessage) {
         if let urlString = chat.webUrl,
-           let url = DeepLinkService.passthrough(urlString),
-           UIApplication.shared.canOpenURL(url) {
-            UIApplication.shared.open(url)
+           let url = DeepLinkService.passthrough(urlString) {
+            UIApplication.shared.open(url) { ok in
+                if !ok { deepLink(DeepLinkService.teams) }
+            }
             return
         }
         deepLink(DeepLinkService.teams)
@@ -546,8 +558,14 @@ private struct EmailRow: View {
                     .foregroundStyle(Brand.accent)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(email.from).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        if email.isFlagged {
+                            Image(systemName: "flag.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .accessibilityLabel("Flagged")
+                        }
                         Spacer()
                         Text(relativeTime(email.received))
                             .font(.caption)
@@ -561,8 +579,13 @@ private struct EmailRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Email from \(email.from): \(email.subject)")
-        .accessibilityHint("Open in Outlook")
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("Reply in Outlook")
+    }
+
+    private var accessibilityLabel: String {
+        let flagPrefix = email.isFlagged ? "Flagged email" : "Email"
+        return "\(flagPrefix) from \(email.from): \(email.subject)"
     }
 }
 
