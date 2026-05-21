@@ -17,9 +17,12 @@ struct CheckInApp: App {
         let sm = StateMachine()
         // Hydrate the rest-state preference from AppStorage so a user who
         // chose Conversation in a prior session lands in .listening from
-        // first turn instead of waiting for them to reopen Settings.
+        // first turn instead of waiting for them to reopen Settings. Voice
+        // disabled overrides conversation mode — no auto-arm of a hidden
+        // mic.
         let storedMode = UserDefaults.standard.string(forKey: AppStorageKey.listeningMode) ?? "tapToTalk"
-        sm.preferredRestState = (storedMode == "conversation") ? .listening : .idle
+        let voiceOn = (UserDefaults.standard.object(forKey: AppStorageKey.voiceEnabled) as? Bool) ?? true
+        sm.preferredRestState = (voiceOn && storedMode == "conversation") ? .listening : .idle
         let speech = AppleSpeechService()
         let tts = AppleTTSService()
         let earcons = AppleEarconPlayer()

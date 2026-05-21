@@ -38,7 +38,9 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 voiceSection
-                listeningModeSection
+                if voiceEnabled {
+                    listeningModeSection
+                }
                 refreshSection
                 advancedSection
                 signOutSection
@@ -72,6 +74,19 @@ struct SettingsView: View {
     private var voiceSection: some View {
         Section {
             Toggle("Voice commands", isOn: $voiceEnabled)
+                .onChange(of: voiceEnabled) { _, on in
+                    // Voice off forces tap-to-talk rest semantics so the
+                    // state machine doesn't auto-arm a hidden mic. Voice on
+                    // restores whatever listening-mode the user chose.
+                    let target: RestState = (on && listeningMode == "conversation") ? .listening : .idle
+                    stateMachine.preferredRestState = target
+                    // If the sheet is open (it is, by construction here),
+                    // patch its captured returnTo so dismissal lands on the
+                    // new rest state, not the one captured at sheet open.
+                    if case .active(.settingsDisplayed) = stateMachine.currentState {
+                        stateMachine.transition(to: .active(.settingsDisplayed(returnTo: target)))
+                    }
+                }
             Picker("Voice", selection: $voiceIdentifier) {
                 Text("System default").tag("")
                 ForEach(localeVoices(), id: \.identifier) { voice in
