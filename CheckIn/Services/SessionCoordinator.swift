@@ -34,6 +34,11 @@ final class SessionCoordinator {
     private var transcriptTask: Task<Void, Never>?
     private var ttsEventTask: Task<Void, Never>?
 
+    /// In-flight summary fetch, if any. Held so that an intent dispatched
+    /// during the cold-boot load (or a stale-cache refresh) can await the
+    /// same fetch instead of racing or duplicating it.
+    private var pendingFetch: Task<Void, Never>?
+
     init(stateMachine: StateMachine,
          speechService: any SpeechService,
          ttsService: any TTSService,
@@ -135,6 +140,14 @@ final class SessionCoordinator {
             summaryService.reset()
         }
 
+        // Sign-in (or cold-boot from .signedOut into .active). Kick off
+        // an initial summary load so the first user turn has data
+        // without racing the cache. Intent dispatches that arrive before
+        // the fetch returns will await this same Task via the TTL gate.
+        if case .signedOut = event.from, case .active = event.to {
+            startSummaryFetch()
+        }
+
         let effects = transitionRouter.sideEffects(
             from: event.from,
             to: event.to,
@@ -204,6 +217,56 @@ final class SessionCoordinator {
         }
     }
 
+    /// Start a summary fetch if one isn't already in flight. The Task
+    /// stamps `context.summaryFetchedAt` so the TTL gate can read freshness
+    /// off the context rather than tracking it here. Coalesces — repeat
+    /// calls while a fetch is pending are no-ops.
+    private func startSummaryFetch() {
+        if pendingFetch != nil { return }
+        pendingFetch = Task { @MainActor [weak self] in
+            guard let self else { return }
+            #if DEBUG
+            print("[summary] fetching")
+            #endif
+            let summary = await self.summaryService.fetchSummary()
+            self.stateMachine.updateContext {
+                $0.summary = summary
+                $0.summaryFetchedAt = Date()
+            }
+            #if DEBUG
+            let m = summary.meeting != nil ? "meeting" : "no-meeting"
+            print("[summary] fetched: emails=\(summary.emails.count) chats=\(summary.chats.count) \(m) emailErr=\(summary.emailError ?? "nil") chatErr=\(summary.chatError ?? "nil")")
+            #endif
+            self.pendingFetch = nil
+        }
+    }
+
+    /// Block on the in-flight fetch if there is one. Concurrent intent
+    /// dispatches share the same Task; whoever runs the gate first
+    /// triggers the fetch and the rest await its result.
+    private func awaitPendingFetch() async {
+        await pendingFetch?.value
+    }
+
+    /// Start a fresh fetch (waiting for any in-flight one to land first
+    /// so we don't clobber its writes) and block until it completes.
+    /// Used by `.refresh` and by the stale-cache branch of the TTL gate.
+    private func fetchSummaryBlocking() async {
+        await awaitPendingFetch()
+        startSummaryFetch()
+        await awaitPendingFetch()
+    }
+
+    /// True if the cached summary is missing or older than the configured
+    /// refresh interval. Returns false when the user has chosen "Never"
+    /// (interval == nil) and a summary already exists — that's the
+    /// explicit opt-out from auto-refresh.
+    private func isSummaryStale() -> Bool {
+        guard let fetchedAt = stateMachine.context.summaryFetchedAt else { return true }
+        guard let interval = AppStorageKey.summaryRefreshInterval else { return false }
+        return Date().timeIntervalSince(fetchedAt) > interval
+    }
+
     private func handle(_ update: TranscriptUpdate) async {
         logger.debug("transcript: \(update.text) (final=\(update.isFinal))")
         #if DEBUG
@@ -241,21 +304,21 @@ final class SessionCoordinator {
         let ranking = rankedClassifier?.rank(utterance: update.text,
                                              context: context) ?? []
 
-        // Fetch fresh data for intents that need it before generating
-        // the spoken response. `.summary` and `.filter` both reference
-        // the data directly; `.refresh` populates the context so the
-        // user's next ask picks it up. Empty spoken ack on refresh;
-        // summary follows on the next turn.
-        if needsSummary(classified.intent) {
-            #if DEBUG
-            print("[summary] fetching for intent=\(classified.intent)")
-            #endif
-            let summary = await summaryService.fetchSummary()
-            stateMachine.updateContext { $0.summary = summary }
-            #if DEBUG
-            let m = summary.meeting != nil ? "meeting" : "no-meeting"
-            print("[summary] fetched: emails=\(summary.emails.count) chats=\(summary.chats.count) \(m) emailErr=\(summary.emailError ?? "nil") chatErr=\(summary.chatError ?? "nil")")
-            #endif
+        // TTL gate. `.refresh` always re-fetches — that's the explicit
+        // user ask. Other summary-reading intents (.summary, .filter,
+        // .reply, .join, .timeQuery) use the cache when fresh and
+        // re-fetch only when stale. Intents that don't read the summary
+        // (.help, .stop, .settings, .open of meeting/calendar without a
+        // person, etc.) skip the gate entirely. Any dispatch that lands
+        // while the cold-boot load is still in flight awaits the same
+        // Task rather than racing or duplicating it.
+        if classified.intent == .refresh {
+            await fetchSummaryBlocking()
+        } else if needsSummary(classified.intent) {
+            await awaitPendingFetch()
+            if isSummaryStale() {
+                await fetchSummaryBlocking()
+            }
         }
 
         let resolution = resolveSender(intent: classified.intent,

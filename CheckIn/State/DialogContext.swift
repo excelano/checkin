@@ -16,6 +16,11 @@ struct DialogContext {
     /// follow-up queries ("how many emails?") don't trigger a refetch.
     var summary: CheckInSummary?
 
+    /// When `summary` was last fetched. The TTL gate in `SessionCoordinator`
+    /// compares this against `AppStorageKey.summaryRefreshInterval` to decide
+    /// whether an intent that reads `summary` should trigger a refresh first.
+    var summaryFetchedAt: Date?
+
     var lastUtterance: String?
     var lastSystemResponse: String?
 

@@ -23,6 +23,9 @@ struct SettingsView: View {
     // Listening Mode
     @AppStorage(AppStorageKey.listeningMode) private var listeningMode: String = "tapToTalk"
 
+    // Summary refresh cadence (minutes; 0 = Never)
+    @AppStorage(AppStorageKey.summaryRefreshMinutes) private var summaryRefreshMinutes: Int = AppStorageKey.summaryRefreshMinutesDefault
+
     // Advanced
     @AppStorage(AppStorageKey.customClientID) private var customClientID: String = ""
     @AppStorage(AppStorageKey.customAuthority) private var customAuthority: String = ""
@@ -35,6 +38,7 @@ struct SettingsView: View {
             Form {
                 voiceSection
                 listeningModeSection
+                refreshSection
                 advancedSection
                 signOutSection
             }
@@ -144,6 +148,25 @@ struct SettingsView: View {
             Text("Listening Mode")
         } footer: {
             Text("Tap to talk: each turn requires a mic tap. Conversation: I keep the mic open between turns and finalize when you stop speaking.")
+        }
+    }
+
+    // MARK: - Refresh
+
+    private var refreshSection: some View {
+        Section {
+            Picker("Refresh", selection: $summaryRefreshMinutes) {
+                Text("1 minute").tag(1)
+                Text("2 minutes").tag(2)
+                Text("3 minutes").tag(3)
+                Text("5 minutes").tag(5)
+                Text("10 minutes").tag(10)
+                Text("Never").tag(0)
+            }
+        } header: {
+            Text("Refresh")
+        } footer: {
+            Text("How often CheckIn re-fetches your inbox, calendar, and chats in the background. Saying \"refresh\" forces a fetch regardless of this setting.")
         }
     }
 

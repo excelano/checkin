@@ -46,4 +46,23 @@ enum AppStorageKey {
     static let verbosityFull = "verbosityFull"
     static let customClientID = "customClientID"
     static let customAuthority = "customAuthority"
+    /// Minutes between automatic summary refreshes. 0 means never (only
+    /// explicit `.refresh` or `.summary` will fetch). Default is 2 minutes.
+    static let summaryRefreshMinutes = "summaryRefreshMinutes"
+
+    /// Default refresh cadence applied when the user hasn't set one. Kept
+    /// here so the SwiftUI `@AppStorage` binding and the SessionCoordinator's
+    /// direct read agree on the fallback.
+    static let summaryRefreshMinutesDefault = 2
+
+    /// Effective refresh interval as a `TimeInterval`. Returns `nil` when
+    /// the user has explicitly chosen "Never" (stored as 0). When the key
+    /// has never been written, falls back to `summaryRefreshMinutesDefault`,
+    /// so `UserDefaults.integer(forKey:)`'s zero-on-missing default doesn't
+    /// collide with the "never" sentinel.
+    static var summaryRefreshInterval: TimeInterval? {
+        let stored = UserDefaults.standard.object(forKey: summaryRefreshMinutes) as? Int
+        let minutes = stored ?? summaryRefreshMinutesDefault
+        return minutes == 0 ? nil : TimeInterval(minutes * 60)
+    }
 }
