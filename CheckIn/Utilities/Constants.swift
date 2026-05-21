@@ -46,6 +46,7 @@ enum Constants {
 enum AppStorageKey {
     static let listeningMode = "listeningMode"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    static let voiceEnabled = "voiceEnabled"
     static let voiceIdentifier = "voiceIdentifier"
     static let speechRate = "speechRate"
     static let verbosityFull = "verbosityFull"

@@ -16,6 +16,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     // Voice
+    @AppStorage(AppStorageKey.voiceEnabled) private var voiceEnabled: Bool = true
     @AppStorage(AppStorageKey.voiceIdentifier) private var voiceIdentifier: String = ""
     @AppStorage(AppStorageKey.speechRate) private var speechRate: Double = Double(AVSpeechUtteranceDefaultSpeechRate)
     @AppStorage(AppStorageKey.verbosityFull) private var verbosityFull: Bool = false
@@ -70,12 +71,14 @@ struct SettingsView: View {
 
     private var voiceSection: some View {
         Section {
+            Toggle("Voice commands", isOn: $voiceEnabled)
             Picker("Voice", selection: $voiceIdentifier) {
                 Text("System default").tag("")
                 ForEach(localeVoices(), id: \.identifier) { voice in
                     Text(voiceLabel(voice)).tag(voice.identifier)
                 }
             }
+            .disabled(!voiceEnabled)
             VStack(alignment: .leading) {
                 HStack {
                     Text("Speech rate")
@@ -94,11 +97,13 @@ struct SettingsView: View {
                     Image(systemName: "hare.fill").foregroundStyle(Brand.textMuted)
                 }
             }
+            .disabled(!voiceEnabled)
             Toggle("Full summaries", isOn: $verbosityFull)
+                .disabled(!voiceEnabled)
         } header: {
             Text("Voice")
         } footer: {
-            Text("CheckIn defaults to terse summaries. Turn on full summaries when you want every detail spoken.")
+            Text("Turn off voice commands to use the app with taps only. CheckIn defaults to terse summaries; turn on full summaries when you want every detail spoken.")
         }
     }
 
