@@ -123,7 +123,11 @@ enum IntentAnchors {
             "open the meeting",
             "open emails from tony",
             "open my email from tony",
-            "open the email from sarah"
+            "open the email from sarah",
+            "open my inbox",
+            "open the inbox",
+            "open my email",
+            "open my mail"
         ]),
 
         (.reply, [
