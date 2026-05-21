@@ -72,7 +72,7 @@ struct CheckInApp: App {
                                    summaryService: summary,
                                    stateMachine: sm)
         self.inboxActions = actions
-        let executor = CommandExecutor(inboxActions: actions)
+        let executor = CommandExecutor(inboxActions: actions, stateMachine: sm)
         let interpreter: any Interpreter = PhraseInterpreter()
         self.coordinator = SessionCoordinator(
             stateMachine: sm,
