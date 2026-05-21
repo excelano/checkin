@@ -7,12 +7,9 @@ import Foundation
 import Observation
 import os
 
-/// The hierarchical state machine spine.
-///
-/// Voice and touch both transition through a single source of truth.
-/// `currentState` and `context` are observable so SwiftUI views re-render
-/// automatically. Mutators are the only public entry points; direct
-/// property writes are not allowed.
+/// State machine spine. `currentState` and `context` are observable so
+/// SwiftUI re-renders automatically. Mutators are the only public entry
+/// points; direct property writes are not allowed.
 @Observable
 final class StateMachine {
 
@@ -21,8 +18,7 @@ final class StateMachine {
 
     /// Unidirectional event log of every transition. The single subscriber
     /// is `SessionCoordinator`, which translates transitions into service
-    /// side effects (start listening, fetch summary, speak, etc.) so the
-    /// state machine stays free of consumer dependencies.
+    /// side effects so the state machine stays free of consumer dependencies.
     @ObservationIgnored let transitions: AsyncStream<TransitionEvent>
     @ObservationIgnored private let transitionContinuation: AsyncStream<TransitionEvent>.Continuation
 
@@ -49,30 +45,13 @@ final class StateMachine {
         mutate(&context)
     }
 
-    func recordTurn(user: String, system: String, category: ResponseCategory) {
-        context.recordTurn(user: user, system: system)
-        context.rememberPhrasing(system, in: category)
-    }
-
     func resetContext() {
         context = DialogContext()
     }
 
-    /// The rest state to return to from speaking, help, or settings. Driven
-    /// by listening mode. Set by the listening-mode setting at sign-in
-    /// and on mode changes; defaults to tap-to-talk.
+    /// The rest state to return to from speaking, help, or settings.
+    /// Driven by listening mode (tap-to-talk → `.idle`, conversation → `.listening`).
     var preferredRestState: RestState = .idle
-
-    /// Coordinator hooks the view layer calls when the user resolves or
-    /// cancels a disambiguation, or accepts/cancels a confirmation. The
-    /// SwiftUI panels only have a reference to the state machine, not the
-    /// coordinator, so the coordinator wires these on `start()` to route
-    /// panel events back to its own logic without a singleton or a
-    /// back-pointer through the view tree.
-    @ObservationIgnored var onCandidateSelected: ((Candidate) -> Void)?
-    @ObservationIgnored var onDisambiguationCancelled: (() -> Void)?
-    @ObservationIgnored var onConfirmationAccepted: (() -> Void)?
-    @ObservationIgnored var onConfirmationCancelled: (() -> Void)?
 
     private func log(from: DialogState, to: DialogState) {
         #if DEBUG

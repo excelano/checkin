@@ -7,11 +7,15 @@ import Foundation
 import UIKit
 import os
 
-/// Translates `StateMachine` transitions into service side effects. The
-/// state machine stays free of service dependencies; the coordinator owns
-/// the consequence side: configure the audio session, start the recognizer
-/// on entry to listening, run the dialog layer, drive `TTSService`, fetch
-/// from `GraphClient` when needed, and route disambiguation.
+/// Translates `StateMachine` transitions into service side effects and
+/// wires the voice loop: speech recognizer transcripts → interpreter →
+/// command executor → spoken result via the speaking state.
+///
+/// The legacy intent-classification / persona / disambiguation / mutation
+/// machinery was retired. The coordinator no longer routes voice prompts
+/// or builds spoken-response pools — there's exactly one voice path,
+/// `transcript → Command → CommandResult → speak`, and unrecognized
+/// transcripts get a canonical refusal.
 @MainActor
 final class SessionCoordinator {
     private let stateMachine: StateMachine
@@ -19,13 +23,6 @@ final class SessionCoordinator {
     private let ttsService: any TTSService
     private let audioController: AudioSessionController
     private let summaryService: any SummaryService
-    private let intentClassifier: any IntentClassifier
-    private let rankedClassifier: (any RankedIntentClassifier)?
-    private let responseGenerator: any ResponseGenerator
-    private let entityMatcher: any EntityMatcher
-    private let utteranceLog: any UtteranceLog
-    private let disambiguationController: DisambiguationController
-    private let intentExecutor: IntentExecutor
     private let commandExecutor: CommandExecutor
     private let interpreter: any Interpreter
     private let transitionRouter = TransitionRouter()
@@ -36,9 +33,8 @@ final class SessionCoordinator {
     private var transcriptTask: Task<Void, Never>?
     private var ttsEventTask: Task<Void, Never>?
 
-    /// In-flight summary fetch, if any. Held so that an intent dispatched
-    /// during the cold-boot load (or a stale-cache refresh) can await the
-    /// same fetch instead of racing or duplicating it.
+    /// In-flight summary fetch, held so a concurrent dispatch awaits the
+    /// same fetch rather than racing or duplicating it.
     private var pendingFetch: Task<Void, Never>?
 
     init(stateMachine: StateMachine,
@@ -46,67 +42,24 @@ final class SessionCoordinator {
          ttsService: any TTSService,
          audioController: AudioSessionController,
          summaryService: any SummaryService,
-         intentClassifier: any IntentClassifier,
-         responseGenerator: any ResponseGenerator,
-         entityMatcher: any EntityMatcher,
-         utteranceLog: any UtteranceLog,
          commandExecutor: CommandExecutor,
-         interpreter: any Interpreter,
-         mutationDispatcher: @escaping (MutationKind, [String]) async -> Result<Void, Error>
-            = { _, _ in .success(()) }) {
+         interpreter: any Interpreter) {
         self.stateMachine = stateMachine
         self.speechService = speechService
         self.ttsService = ttsService
         self.audioController = audioController
         self.summaryService = summaryService
-        self.intentClassifier = intentClassifier
-        self.rankedClassifier = intentClassifier as? RankedIntentClassifier
-        self.responseGenerator = responseGenerator
-        self.entityMatcher = entityMatcher
-        self.utteranceLog = utteranceLog
         self.commandExecutor = commandExecutor
         self.interpreter = interpreter
-        self.intentExecutor = IntentExecutor(
-            entityMatcher: entityMatcher,
-            urlOpener: { url in
-                await UIApplication.shared.open(url)
-            },
-            mutationDispatcher: mutationDispatcher
-        )
-        self.disambiguationController = DisambiguationController(
-            stateMachine: stateMachine,
-            responseGenerator: responseGenerator,
-            entityMatcher: entityMatcher,
-            intentExecutor: intentExecutor,
-            utteranceLog: utteranceLog
-        )
     }
 
-    /// Begin consuming the state machine's transition stream, the
-    /// speech service's transcript stream, and the TTS event stream.
-    /// Idempotent so SwiftUI's `.task` firing twice during view
-    /// reattachment doesn't spawn duplicate consumers.
+    /// Begin consuming the state machine's transition stream, the speech
+    /// service's transcript stream, and the TTS event stream. Idempotent.
     func start() {
         guard transitionTask == nil else { return }
         let transitions = stateMachine.transitions
         let transcripts = speechService.transcripts
         let ttsEvents = ttsService.events
-
-        // The SwiftUI panel only sees the state machine; route its
-        // selection / cancel events through these closures so the
-        // coordinator owns the resume side without a view back-pointer.
-        stateMachine.onCandidateSelected = { [weak self] candidate in
-            self?.resumeDisambiguation(with: candidate)
-        }
-        stateMachine.onDisambiguationCancelled = { [weak self] in
-            self?.cancelDisambiguation()
-        }
-        stateMachine.onConfirmationAccepted = { [weak self] in
-            self?.acceptConfirmation()
-        }
-        stateMachine.onConfirmationCancelled = { [weak self] in
-            self?.cancelConfirmation()
-        }
 
         transitionTask = Task { [weak self] in
             for await event in transitions {
@@ -131,10 +84,6 @@ final class SessionCoordinator {
     }
 
     func stop() {
-        stateMachine.onCandidateSelected = nil
-        stateMachine.onDisambiguationCancelled = nil
-        stateMachine.onConfirmationAccepted = nil
-        stateMachine.onConfirmationCancelled = nil
         transitionTask?.cancel()
         transcriptTask?.cancel()
         ttsEventTask?.cancel()
@@ -143,29 +92,24 @@ final class SessionCoordinator {
         ttsEventTask = nil
     }
 
+    // MARK: - Transition handling
+
     private func handle(_ event: TransitionEvent) async {
         logger.debug("saw: \(String(describing: event.from)) -> \(String(describing: event.to))")
         #if DEBUG
-        // Mirror to stdout so `devicectl process launch --console` shows
-        // transitions over SSH. Debug-only so Release stays clean.
         print("[coordinator] \(event.from) -> \(event.to)")
         #endif
 
-        // Account boundary: a transition into .signedOut means the user
-        // tapped Sign Out (or auth fell off). Drop per-account caches so
-        // the next signed-in account starts clean. Cancel any in-flight
-        // fetch so its result can't land in the next session's context
-        // — the Task itself bails on `Task.isCancelled` before writing.
+        // Account boundary: a transition into .signedOut drops per-account
+        // caches and cancels any in-flight fetch.
         if case .signedOut = event.to {
             summaryService.reset()
             pendingFetch?.cancel()
             pendingFetch = nil
         }
 
-        // Sign-in (or cold-boot from .signedOut into .active). Kick off
-        // an initial summary load so the first user turn has data
-        // without racing the cache. Intent dispatches that arrive before
-        // the fetch returns will await this same Task via the TTL gate.
+        // Sign-in (cold-boot from .signedOut into .active): kick off an
+        // initial summary load so the first turn has data without racing.
         if case .signedOut = event.from, case .active = event.to {
             startSummaryFetch(reason: "boot")
         }
@@ -183,11 +127,6 @@ final class SessionCoordinator {
     private func apply(_ effect: TransitionRouter.SideEffect) async {
         switch effect {
         case .configureAudio(let phase):
-            // Speaking / inactive configures: log a failure but let the
-            // turn continue. The synth still runs under whichever category
-            // stayed active, and the next phase change will retry.
-            // Listening configures don't reach this path — beginListening
-            // does that one directly so it can bail to idle on failure.
             do {
                 try audioController.configure(for: phase)
             } catch {
@@ -196,9 +135,9 @@ final class SessionCoordinator {
                 print("[coordinator] audio configure failed for \(phase): \(error.localizedDescription)")
                 #endif
             }
-        case .speak(let response):
+        case .speak(let text):
             do {
-                try ttsService.speak(response.text)
+                try ttsService.speak(text)
             } catch {
                 logger.error("tts.speak failed: \(error.localizedDescription, privacy: .public)")
                 #if DEBUG
@@ -222,111 +161,10 @@ final class SessionCoordinator {
             }
         case .playEarcon(let earcon):
             audioController.play(earcon)
-        case .resetDisambigFailedAttempts:
-            if stateMachine.context.disambiguationFailedAttempts != 0 {
-                stateMachine.updateContext {
-                    $0.disambiguationFailedAttempts = 0
-                }
-            }
         }
     }
 
-    private func needsSummary(_ intent: Intent) -> Bool {
-        switch intent {
-        case .summary, .filter, .refresh: return true
-        case .reply, .join, .timeQuery: return true
-        case .markRead, .flag, .delete: return true
-        case .bulkMarkRead, .bulkFlag, .bulkDelete: return true
-        default: return false
-        }
-    }
-
-    /// True when the intent is any mutation, single or bulk. The two
-    /// branch shapes share the disambiguation flow, the confirmation gate,
-    /// and the summary-needed check.
-    private func isMutation(_ intent: Intent) -> Bool {
-        switch intent {
-        case .markRead, .flag, .delete: return true
-        case .bulkMarkRead, .bulkFlag, .bulkDelete: return true
-        default: return false
-        }
-    }
-
-    /// True when the intent acts on a count rather than a single target.
-    /// Bulk routing uses a different executor entry point and a different
-    /// description template, but otherwise shares the confirmation gate.
-    private func isBulkMutation(_ intent: Intent) -> Bool {
-        switch intent {
-        case .bulkMarkRead, .bulkFlag, .bulkDelete: return true
-        default: return false
-        }
-    }
-
-    private func mutationKind(_ intent: Intent) -> MutationKind? {
-        switch intent {
-        case .markRead: return .markRead
-        case .flag:     return .flag
-        case .delete:   return .delete
-        case .bulkMarkRead: return .bulkMarkRead
-        case .bulkFlag:     return .bulkFlag
-        case .bulkDelete:   return .bulkDelete
-        default:        return nil
-        }
-    }
-
-    /// Start a summary fetch if one isn't already in flight. The Task
-    /// stamps `context.summaryFetchedAt` so the TTL gate can read freshness
-    /// off the context rather than tracking it here. Coalesces — repeat
-    /// calls while a fetch is pending are no-ops. `reason` tags the
-    /// debug print so cold-boot / stale / refresh fetches can be told
-    /// apart in the console.
-    private func startSummaryFetch(reason: String) {
-        if pendingFetch != nil { return }
-        pendingFetch = Task { [weak self] in
-            guard let self else { return }
-            #if DEBUG
-            print("[summary] fetching reason=\(reason)")
-            #endif
-            let summary = await self.summaryService.fetchSummary()
-            // Sign-out during the fetch cancels the Task. Bail before
-            // writing context so the next session starts clean.
-            if Task.isCancelled { return }
-            self.stateMachine.updateContext {
-                $0.summary = summary
-                $0.summaryFetchedAt = Date()
-            }
-            #if DEBUG
-            let m = summary.meeting != nil ? "meeting" : "no-meeting"
-            print("[summary] fetched: emails=\(summary.emails.count) chats=\(summary.chats.count) \(m) emailErr=\(summary.emailError ?? "nil") chatErr=\(summary.chatError ?? "nil")")
-            #endif
-            self.pendingFetch = nil
-        }
-    }
-
-    /// Block on the in-flight fetch if there is one. Concurrent intent
-    /// dispatches share the same Task; whoever runs the gate first
-    /// triggers the fetch and the rest await its result.
-    private func awaitPendingFetch() async {
-        await pendingFetch?.value
-    }
-
-    /// Start a fetch (coalesced with any in-flight one) and block until
-    /// it completes. Used by `.refresh` and by the stale-cache branch
-    /// of the TTL gate.
-    private func fetchSummaryBlocking(reason: String) async {
-        startSummaryFetch(reason: reason)
-        await pendingFetch?.value
-    }
-
-    /// True if the cached summary is missing or older than the configured
-    /// refresh interval. Returns false when the user has chosen "Never"
-    /// (interval == nil) and a summary already exists — that's the
-    /// explicit opt-out from auto-refresh.
-    private func isSummaryStale() -> Bool {
-        guard let fetchedAt = stateMachine.context.summaryFetchedAt else { return true }
-        guard let interval = AppStorageKey.summaryRefreshInterval else { return false }
-        return Date().timeIntervalSince(fetchedAt) > interval
-    }
+    // MARK: - Transcript handling
 
     private func handle(_ update: TranscriptUpdate) async {
         logger.debug("transcript: \(update.text) (final=\(update.isFinal))")
@@ -336,415 +174,56 @@ final class SessionCoordinator {
 
         guard update.isFinal else { return }
 
-        // A transcript arriving while disambiguating means the user is
-        // voice-picking a candidate, not starting a fresh intent turn.
-        if case .active(.disambiguating(let suspended, let candidates, let surface))
-            = stateMachine.currentState {
-            await disambiguationController.handleUtterance(update.text,
-                                                           suspended: suspended,
-                                                           candidates: candidates,
-                                                           surface: surface)
-            return
-        }
-
-        // A transcript arriving while confirming means the user is voice-
-        // answering the yes/no, not starting a fresh intent turn. Cheap
-        // lexical match — the classifier's `.yes`/`.no` anchors live on
-        // the same vocabulary but routing them through it here would
-        // require carrying intent state across an extra hop for no gain.
-        if case .active(.confirming) = stateMachine.currentState {
-            handleConfirmationUtterance(update.text)
-            return
-        }
-
-        // Auto-finalize: in tap-to-talk the UI tap moved the machine to
-        // .processing before the recognizer stopped, so by the time the
-        // final transcript arrives we're already there. In conversation
-        // mode the recognizer's natural isFinal fires while the machine
-        // is still .listening — drive it forward here so the rest of the
-        // turn's logic runs identically to tap-to-talk.
+        // Auto-finalize: in tap-to-talk the UI tap already moved the
+        // machine to .processing before the recognizer stopped, so by
+        // the time the final transcript arrives we're already there. In
+        // conversation mode the recognizer's natural isFinal fires while
+        // the machine is still .listening — drive it forward here.
         if case .active(.listening) = stateMachine.currentState {
-            stateMachine.transition(to: .active(.processing(.thinking)))
+            stateMachine.transition(to: .active(.processing))
         }
 
-        // New command path: when the interpreter recognizes a phrase,
-        // route through the executor (which calls InboxActions or fires
-        // a deep link) and feed the result into the speaking state. The
-        // legacy intent classifier / persona / disambiguation machinery
-        // below stays available for phrases the interpreter doesn't
-        // yet handle, so this is additive — nothing regresses until a
-        // phrase migrates over.
-        if let command = interpreter.interpret(update.text) {
-            await handleCommand(command, utterance: update.text)
-            return
-        }
-
-        let context = stateMachine.context
-        let classified = intentClassifier.classify(
-            utterance: update.text,
-            context: context
-        )
-        let ranking = rankedClassifier?.rank(utterance: update.text,
-                                             context: context) ?? []
-
-        // TTL gate. `.refresh` always re-fetches — that's the explicit
-        // user ask. Other summary-reading intents (.summary, .filter,
-        // .reply, .join, .timeQuery) use the cache when fresh and
-        // re-fetch only when stale. Intents that don't read the summary
-        // (.help, .stop, .settings, .open of meeting/calendar without a
-        // person, etc.) skip the gate entirely. Any dispatch that lands
-        // while the cold-boot load is still in flight awaits the same
-        // Task rather than racing or duplicating it.
-        if classified.intent == .refresh {
-            await fetchSummaryBlocking(reason: "refresh")
-        } else if needsSummary(classified.intent) {
-            await awaitPendingFetch()
-            if isSummaryStale() {
-                await fetchSummaryBlocking(reason: "stale")
-            }
-        }
-
-        let resolution = resolveSender(intent: classified.intent,
-                                       text: update.text)
-
-        let response: SpokenResponse
-        let followUp: SpeakingFollowUp
-
-        switch resolution {
-        case .needsDisambiguation(let surface, let candidates):
-            let origin: DisambigOrigin
-            if let kind = mutationKind(classified.intent) {
-                origin = .mutation(kind)
-            } else if classified.intent == .reply {
-                origin = .reply
-            } else {
-                origin = .filter
-            }
-            let suspended = SuspendedIntent(utterance: update.text,
-                                            origin: origin)
-            let pending = PendingDisambiguation(suspendedIntent: suspended,
-                                                surface: surface,
-                                                candidates: candidates)
-            let text = ResponseTemplateRegistry.disambiguationPrompt(
-                heardSurface: surface, candidates: candidates)
-            response = SpokenResponse(text: text, category: .disambiguation)
-            followUp = .disambiguate(pending)
+        let command = interpreter.interpret(update.text)
+        if let command {
+            await handleCommand(command)
+        } else {
             #if DEBUG
-            print("[disambig] prompt origin=\(origin) surface=\(surface) candidates=\(candidates.map { $0.label })")
+            print("[command] unrecognized \"\(update.text)\"")
             #endif
-
-        case .unknown(let name):
-            let text: String
-            if classified.intent == .reply {
-                text = ResponseTemplateRegistry.replyUnknownSender(name)
-            } else if isMutation(classified.intent) {
-                text = ResponseTemplateRegistry.openNotFound(name)
-            } else {
-                text = ResponseTemplateRegistry.filterUnknownSender(name)
-            }
-            response = SpokenResponse(text: text, category: .answer)
-            followUp = .rest(stateMachine.preferredRestState)
-            #if DEBUG
-            print("[\(classified.intent)] unknown sender name=\(name)")
-            #endif
-
-        case .resolved(let sender):
-            if let kind = mutationKind(classified.intent) {
-                let outcome: IntentExecutor.MutationOutcome
-                if isBulkMutation(classified.intent) {
-                    outcome = intentExecutor.handleBulkMutation(
-                        kind: kind,
-                        utterance: update.text,
-                        context: stateMachine.context,
-                        preferredSender: sender
-                    )
-                } else {
-                    outcome = intentExecutor.handleMutation(
-                        kind: kind,
-                        utterance: update.text,
-                        context: stateMachine.context,
-                        preferredSender: sender
-                    )
-                }
-                if let pending = outcome.pending {
-                    let promptText = ResponseTemplateRegistry.confirmationPrompt(
-                        pending.description)
-                    response = SpokenResponse(text: promptText,
-                                              category: .confirmation)
-                    followUp = .confirm(pending)
-                } else {
-                    response = outcome.refusal
-                        ?? SpokenResponse(text: "", category: .answer)
-                    followUp = .rest(stateMachine.preferredRestState)
-                }
-                #if DEBUG
-                if let p = outcome.pending {
-                    print("[mutation] pending kind=\(p.kind) targets=\(p.targets) description=\"\(p.description)\"")
-                } else {
-                    print("[mutation] refused kind=\(kind)")
-                }
-                #endif
-            } else {
-                let baseResponse = responseGenerator.generate(
-                    for: classified,
-                    utterance: update.text,
-                    resolvedSender: sender,
-                    context: stateMachine.context
-                )
-                let result = await intentExecutor.resolveSideEffects(
-                    classified: classified,
-                    utterance: update.text,
-                    baseResponse: baseResponse,
-                    context: stateMachine.context,
-                    defaultRest: stateMachine.preferredRestState
-                )
-                response = result.0
-                followUp = .rest(result.1)
-            }
-        }
-
-        await utteranceLog.record(
-            utterance: update.text,
-            classified: classified,
-            ranking: ranking,
-            response: response
-        )
-
-        stateMachine.recordTurn(
-            user: update.text,
-            system: response.text,
-            category: response.category
-        )
-
-        logger.info("intent: \(String(describing: classified.intent), privacy: .public) confidence=\(classified.confidence)")
-        #if DEBUG
-        print("[intent] \(classified.intent) confidence=\(classified.confidence)")
-        print("[response] \"\(response.text)\" category=\(response.category)")
-        #endif
-
-        if case .active(.processing) = stateMachine.currentState {
-            if response.text.isEmpty {
-                // Silent-by-design intents (.stop, .open on a successful
-                // deep-link route) return straight to the rest state.
-                // AVSpeechSynthesizer fires no delegate callbacks for an
-                // empty utterance, so routing through .speaking would
-                // strand the state machine there. Silent paths only occur
-                // when followUp is .rest — disambig prompts always speak.
-                if case .rest(let restState) = followUp {
-                    switch restState {
-                    case .idle: stateMachine.transition(to: .active(.idle))
-                    case .listening: stateMachine.transition(to: .active(.listening))
-                    }
-                }
-            } else {
-                stateMachine.transition(
-                    to: .active(.speaking(response: response, followUp: followUp))
-                )
-            }
+            speakAndReturnToRest("I didn't catch that.")
         }
     }
 
-    // MARK: - New command path
-
-    /// Run a recognized command and feed the result back into the state
-    /// machine. The executor returns a `CommandResult` with the canonical
-    /// spoken response; non-empty text routes through `.speaking` so the
-    /// router's existing audio plumbing handles TTS playback. Silent
-    /// commands return directly to rest. The voice path stays inside the
-    /// state machine for TTS, but bypasses the classifier / persona pool
-    /// for everything between transcript and result.
-    private func handleCommand(_ command: Command, utterance: String) async {
+    private func handleCommand(_ command: Command) async {
         let result = await commandExecutor.execute(command)
-        let response = SpokenResponse(text: result.spokenResponse, category: .answer)
-
-        stateMachine.recordTurn(user: utterance,
-                                system: response.text,
-                                category: response.category)
-
         #if DEBUG
-        print("[command] result \"\(response.text)\"")
+        print("[command] result \"\(result.spokenResponse)\"")
         #endif
+        speakAndReturnToRest(result.spokenResponse)
+    }
 
+    /// Drive the speaking-then-rest tail of a turn. Empty text returns
+    /// directly to rest; non-empty text routes through `.speaking` so the
+    /// router's TTS plumbing handles playback and the TTS-finished event
+    /// completes the transition.
+    private func speakAndReturnToRest(_ text: String) {
         guard case .active(.processing) = stateMachine.currentState else { return }
-
-        if response.text.isEmpty {
+        if text.isEmpty {
             switch stateMachine.preferredRestState {
             case .idle: stateMachine.transition(to: .active(.idle))
             case .listening: stateMachine.transition(to: .active(.listening))
             }
         } else {
             stateMachine.transition(to: .active(.speaking(
-                response: response,
-                followUp: .rest(stateMachine.preferredRestState))))
+                text: text,
+                returnTo: stateMachine.preferredRestState)))
         }
     }
 
-    // MARK: - Sender resolution
-
-    /// Three-way fork over the `.filter` resolution: one canonical (fall
-    /// through to the existing narrowing path), multiple (suspend the turn
-    /// and disambiguate), zero with a "from <X>" surface (the user named
-    /// someone we couldn't tag — answer to that, don't silently fall back).
-    private enum SenderResolution {
-        case resolved(String?)
-        case unknown(name: String)
-        case needsDisambiguation(surface: String, candidates: [Candidate])
-    }
-
-    private func resolveSender(intent: Intent, text: String) -> SenderResolution {
-        switch intent {
-        case .filter, .reply,
-             .markRead, .flag, .delete,
-             .bulkMarkRead, .bulkFlag, .bulkDelete:
-            break
-        default:
-            return .resolved(nil)
-        }
-        let matches = entityMatcher.match(text: text,
-                                          domain: .person,
-                                          context: stateMachine.context)
-        // Reduce to distinct canonicals — NLTagger may return the same
-        // person via surface + first-name fallback; dedupe before counting.
-        var seen = Set<String>()
-        let distinct: [String] = matches.compactMap {
-            seen.insert($0.canonical).inserted ? $0.canonical : nil
-        }
-
-        if distinct.count > 1 {
-            let surface = matches.first?.surface ?? text
-            let candidates = distinct.map { Candidate(label: $0, entityRef: $0) }
-            return .needsDisambiguation(surface: surface, candidates: candidates)
-        }
-        if let only = distinct.first {
-            return .resolved(only)
-        }
-        if let name = extractFromName(text) {
-            return .unknown(name: name)
-        }
-        return .resolved(nil)
-    }
-
-    /// Pull a "from <Name>" surface out of an utterance the matcher
-    /// didn't tag. Conservative — anchored to known terminators so a
-    /// long unrelated utterance doesn't sweep up extra tokens.
-    private func extractFromName(_ text: String) -> String? {
-        let pattern = #"\bfrom\s+([A-Za-z][A-Za-z'\- ]*?)(?:\s*[.?!,]|\s*\bin\b|\s*\babout\b|\s*$)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern,
-                                                   options: [.caseInsensitive]) else {
-            return nil
-        }
-        let ns = text as NSString
-        let range = NSRange(location: 0, length: ns.length)
-        guard let match = regex.firstMatch(in: text, range: range),
-              match.numberOfRanges >= 2 else { return nil }
-        let captured = ns.substring(with: match.range(at: 1))
-            .trimmingCharacters(in: .whitespaces)
-        if captured.isEmpty { return nil }
-        // Time terms slip through the "from X" regex when the user means
-        // "from today" / "from this morning" as a time filter. Treating
-        // those as a missing-person surface produces a nonsense refusal,
-        // so drop them here and let `.resolved(nil)` fall through to the
-        // advanced-count detection in `PersonaResponseGenerator`.
-        let lowered = captured.lowercased()
-        let timeStoplist = ["today", "yesterday", "tomorrow",
-                            "this morning", "this afternoon", "this evening",
-                            "tonight", "the morning"]
-        if timeStoplist.contains(lowered) { return nil }
-        return captured
-            .split(separator: " ")
-            .map { word -> String in
-                let first = word.prefix(1).uppercased()
-                let rest = word.dropFirst().lowercased()
-                return first + rest
-            }
-            .joined(separator: " ")
-    }
-
-    // MARK: - Disambiguation (delegated)
-
-    /// View-layer entry point. The panel only sees the `StateMachine`, so
-    /// `start()` wires the panel's selection callback to this method, which
-    /// forwards to `DisambiguationController`.
-    func resumeDisambiguation(with candidate: Candidate) {
-        disambiguationController.resume(with: candidate)
-    }
-
-    /// View-layer entry point for cancel (touch Cancel or mic-tap). Same
-    /// rationale as `resumeDisambiguation`.
-    func cancelDisambiguation() {
-        disambiguationController.cancel()
-    }
-
-    // MARK: - Confirmation
-
-    /// User said yes to the pending mutation (touch Yes, voice .yes, or
-    /// equivalent). Routes the mutation through `IntentExecutor` →
-    /// the injected dispatcher → Microsoft Graph. The success or failure
-    /// SpokenResponse comes back from the executor; success plays the
-    /// confirmation earcon ahead of the announcement.
-    func acceptConfirmation() {
-        guard case .active(.confirming(let mutation))
-                = stateMachine.currentState else { return }
-        let pending = mutation
-        // Transition to processing while the Graph call is in flight so
-        // the UI shows the thinking indicator rather than holding the
-        // confirming panel through the round-trip.
-        stateMachine.transition(to: .active(.processing(.thinking)))
-        Task { [weak self] in
-            guard let self else { return }
-            let response = await self.intentExecutor.executeMutation(pending)
-            if response.category == .confirmation {
-                self.audioController.play(.confirmation)
-            }
-            self.stateMachine.recordTurn(user: "yes",
-                                         system: response.text,
-                                         category: response.category)
-            if case .active(.processing) = self.stateMachine.currentState {
-                self.stateMachine.transition(to: .active(.speaking(
-                    response: response,
-                    followUp: .rest(self.stateMachine.preferredRestState))))
-            }
-        }
-    }
-
-    /// User said no / cancel. No Graph call regardless of phase; just a
-    /// short ack and rest.
-    func cancelConfirmation() {
-        guard case .active(.confirming) = stateMachine.currentState else { return }
-        let response = SpokenResponse(
-            text: ResponseTemplateRegistry.confirmationCancelled,
-            category: .confirmation)
-        stateMachine.recordTurn(user: "no",
-                                system: response.text,
-                                category: response.category)
-        stateMachine.transition(to: .active(.speaking(
-            response: response,
-            followUp: .rest(stateMachine.preferredRestState))))
-    }
-
-    /// Voice answer path while in `.confirming`. Conversation mode keeps
-    /// the recognizer hot through the prompt, so this fires when the user
-    /// speaks "yes" or "no" instead of tapping. Anything else is ignored —
-    /// the user can re-speak. (Two-miss bail like disambig is overkill
-    /// here: the touch affordances are always present.)
-    private func handleConfirmationUtterance(_ text: String) {
-        let lower = text.lowercased()
-        let yesTerms = ["yes", "yeah", "yep", "confirm", "do it", "go ahead", "sure"]
-        let noTerms = ["no", "nope", "cancel", "stop", "nevermind", "never mind", "forget it"]
-        if yesTerms.contains(where: { lower.contains($0) }) {
-            acceptConfirmation()
-        } else if noTerms.contains(where: { lower.contains($0) }) {
-            cancelConfirmation()
-        }
-        // Ambiguous utterance — leave the machine where it is. The panel
-        // stays up and the recognizer cycles for another try.
-    }
+    // MARK: - TTS event handling
 
     /// Drive the state machine out of `.speaking` when the synthesizer
-    /// finishes or is cancelled. The `followUp` carried in the speaking
-    /// payload routes either to a rest state (tap-to-talk's idle,
-    /// conversation mode's listening) or onward to `.disambiguating`
-    /// when a disambig prompt just finished.
+    /// finishes or is cancelled.
     private func handle(tts event: TTSEvent) async {
         logger.debug("tts: \(String(describing: event))")
         #if DEBUG
@@ -760,6 +239,8 @@ final class SessionCoordinator {
             break
         }
     }
+
+    // MARK: - Listening
 
     private func beginListening() async {
         let auth = await speechService.requestAuthorization()
@@ -789,6 +270,31 @@ final class SessionCoordinator {
             print("[coordinator] startListening failed: \(error.localizedDescription)")
             #endif
             stateMachine.transition(to: .active(.idle))
+        }
+    }
+
+    // MARK: - Summary fetch lifecycle
+
+    /// Kick off a summary fetch if one isn't already in flight. Repeat
+    /// calls coalesce.
+    private func startSummaryFetch(reason: String) {
+        if pendingFetch != nil { return }
+        pendingFetch = Task { [weak self] in
+            guard let self else { return }
+            #if DEBUG
+            print("[summary] fetching reason=\(reason)")
+            #endif
+            let summary = await self.summaryService.fetchSummary()
+            if Task.isCancelled { return }
+            self.stateMachine.updateContext {
+                $0.summary = summary
+                $0.summaryFetchedAt = Date()
+            }
+            #if DEBUG
+            let m = summary.meeting != nil ? "meeting" : "no-meeting"
+            print("[summary] fetched: emails=\(summary.emails.count) chats=\(summary.chats.count) \(m) emailErr=\(summary.emailError ?? "nil") chatErr=\(summary.chatError ?? "nil")")
+            #endif
+            self.pendingFetch = nil
         }
     }
 }

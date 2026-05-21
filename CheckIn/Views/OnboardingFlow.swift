@@ -302,8 +302,7 @@ private struct FirstQueryStep: View {
     let onContinue: () -> Void
     let onSkip: () -> Void
 
-    @State private var invitation: String = ResponseTemplateRegistry.onboardingInvitations.randomElement()
-        ?? ResponseTemplateRegistry.onboardingInvitations[0]
+    @State private var invitation: String = "Try saying: refresh"
 
     var body: some View {
         VStack(spacing: 0) {

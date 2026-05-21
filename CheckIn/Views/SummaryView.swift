@@ -6,11 +6,10 @@
 import SwiftUI
 import UIKit
 
-/// The single main screen. Shows the at-a-glance summary plus the
-/// voice surface. Tapping any item deep-links to Outlook or Teams. The mic
-/// button is the primary voice control for both modes: in tap-to-talk
-/// it starts a turn; in conversation mode it cancels listening to return to
-/// idle.
+/// The single main screen. Numbered list of meeting / emails / chats with
+/// per-row taps and swipes wired to the inbox actions. The voice surface
+/// — mic button plus listening / processing / speaking indicators — is
+/// shown only when the voice toggle is on.
 struct SummaryView: View {
     var stateMachine: StateMachine
     var authService: AuthService
@@ -33,7 +32,7 @@ struct SummaryView: View {
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: helpBinding) {
-            HelpView(focus: helpFocus)
+            HelpView()
         }
         .sheet(isPresented: settingsBinding) {
             SettingsView(authService: authService, stateMachine: stateMachine)
@@ -177,17 +176,13 @@ struct SummaryView: View {
 
     // MARK: - Tap actions
 
-    // Tap helpers below intentionally skip `canOpenURL` for HTTPS
-    // passthrough URLs. `canOpenURL` reliably answers for declared custom
-    // schemes (`msteams://`, `ms-outlook://` — see LSApplicationQueriesSchemes
-    // in Info.plist) but returns false for universal links like
+    // The tap helpers skip `canOpenURL` for HTTPS passthrough URLs because
+    // `canOpenURL` reliably answers for declared custom schemes (`msteams://`,
+    // `ms-outlook://`) but returns false for universal links like
     // `https://teams.microsoft.com/...` even when iOS would route them to
-    // the installed app. Trust `open(_:)` instead and use its completion
-    // for the fallback.
+    // the installed app. We trust `open(_:)` and use its completion for
+    // the fallback.
 
-    /// Meeting tap: open the Teams join link when the event carries one,
-    /// otherwise fall back to Outlook calendar so the user lands somewhere
-    /// useful instead of getting nothing.
     private func joinOrCalendar(_ meeting: Meeting) {
         if let urlString = meeting.joinUrl,
            let url = DeepLinkService.passthrough(urlString) {
@@ -199,9 +194,6 @@ struct SummaryView: View {
         deepLink(DeepLinkService.outlookCalendar)
     }
 
-    /// Email tap: open a compose-reply pre-filled with the sender and
-    /// `Re:` subject. Missing sender address falls back to the inbox so
-    /// a tap is never dead.
     private func replyTo(_ email: Email) {
         if !email.fromAddress.isEmpty,
            let url = DeepLinkService.outlookReply(to: email.fromAddress,
@@ -214,8 +206,6 @@ struct SummaryView: View {
         deepLink(DeepLinkService.outlookInbox)
     }
 
-    /// Chat tap: pass through Graph's webUrl when present (lands on the
-    /// specific chat), generic Teams launch otherwise.
     private func openChat(_ chat: ChatMessage) {
         if let urlString = chat.webUrl,
            let url = DeepLinkService.passthrough(urlString) {
@@ -272,59 +262,17 @@ struct SummaryView: View {
 
     private var voiceAreaContent: some View {
         VStack(spacing: 14) {
-            // The disambig panel renders as soon as the disambig prompt
-            // starts speaking, not after `.disambiguating` is entered.
-            // While the prompt is in flight the state is
-            // `.speaking(_, .disambiguate(pending))`; on TTS finish it
-            // transitions to `.disambiguating`. Rendering off both shapes
-            // lets the candidate panel appear immediately so the user can
-            // tap-pick without waiting through the prompt. Same dual-shape
-            // rule for `.confirming`.
-            if let panel = disambigPanelData {
-                DisambiguatingPanel(utterance: panel.utterance,
-                                    candidates: panel.candidates,
-                                    onSelect: { stateMachine.onCandidateSelected?($0) },
-                                    onCancel: { stateMachine.onDisambiguationCancelled?() })
-            } else if let mutation = confirmingPanelData {
-                ConfirmingPanel(mutation: mutation,
-                                onConfirm: { stateMachine.onConfirmationAccepted?() },
-                                onCancel: { stateMachine.onConfirmationCancelled?() })
-            } else {
-                switch stateMachine.currentState {
-                case .active(.listening):
-                    ListeningIndicator()
-                case .active(.processing):
-                    ThinkingIndicator()
-                case .active(.speaking(let response, _)):
-                    CaptioningView(text: response.text)
-                default:
-                    EmptyView()
-                }
+            switch stateMachine.currentState {
+            case .active(.listening):
+                ListeningIndicator()
+            case .active(.processing):
+                ThinkingIndicator()
+            case .active(.speaking(let text, _)):
+                CaptioningView(text: text)
+            default:
+                EmptyView()
             }
-
             micButton
-        }
-    }
-
-    private var disambigPanelData: (utterance: String, candidates: [Candidate])? {
-        switch stateMachine.currentState {
-        case .active(.speaking(_, .disambiguate(let pending))):
-            return (pending.suspendedIntent.utterance, pending.candidates)
-        case .active(.disambiguating(let suspended, let candidates, _)):
-            return (suspended.utterance, candidates)
-        default:
-            return nil
-        }
-    }
-
-    private var confirmingPanelData: PendingMutation? {
-        switch stateMachine.currentState {
-        case .active(.speaking(_, .confirm(let mutation))):
-            return mutation
-        case .active(.confirming(let mutation)):
-            return mutation
-        default:
-            return nil
         }
     }
 
@@ -346,9 +294,7 @@ struct SummaryView: View {
 
     private var micSymbol: String {
         switch stateMachine.currentState {
-        case .active(.listening), .active(.disambiguating), .active(.confirming):
-            return "stop.fill"
-        case .active(.speaking):
+        case .active(.listening), .active(.speaking):
             return "stop.fill"
         default:
             return "mic.fill"
@@ -365,8 +311,7 @@ struct SummaryView: View {
 
     private var micAccessibilityLabel: String {
         switch stateMachine.currentState {
-        case .active(.listening), .active(.disambiguating): return "Stop listening"
-        case .active(.confirming): return "Cancel"
+        case .active(.listening): return "Stop listening"
         case .active(.speaking): return "Stop speaking"
         default: return "Microphone"
         }
@@ -376,7 +321,6 @@ struct SummaryView: View {
         switch stateMachine.currentState {
         case .active(.idle): return "Tap to start a voice turn"
         case .active(.listening): return "Tap to finish speaking"
-        case .active(.confirming): return "Tap to cancel the confirmation"
         case .active(.speaking): return "Tap to interrupt and speak"
         default: return ""
         }
@@ -392,16 +336,7 @@ struct SummaryView: View {
             // Tap-during-listening means "I'm done, process it." The
             // coordinator finalizes the recognizer on this transition; the
             // final transcript arrives shortly after as an isFinal update.
-            stateMachine.transition(to: .active(.processing(.thinking)))
-        case .active(.disambiguating):
-            // Mic-tap during disambiguation = cancel. Routes through the
-            // coordinator so pending state clears too.
-            stateMachine.onDisambiguationCancelled?()
-        case .active(.confirming):
-            // Mic-tap during confirmation = cancel. Same shape as
-            // disambig cancel — coordinator clears the pending mutation
-            // and lands the machine in rest.
-            stateMachine.onConfirmationCancelled?()
+            stateMachine.transition(to: .active(.processing))
         case .active(.speaking):
             // Barge-in.
             stateMachine.transition(to: .active(.listening))
@@ -411,7 +346,6 @@ struct SummaryView: View {
     }
 
     private func openHelp() {
-        // Allow help from any active substate via the universal intent.
         guard case .active = stateMachine.currentState else { return }
         stateMachine.transition(to: .active(.helpDisplayed(returnTo: stateMachine.preferredRestState)))
     }
@@ -468,38 +402,9 @@ struct SummaryView: View {
             }
         )
     }
-
-    private var helpFocus: HelpFocus {
-        if !stateMachine.context.recentRefusals.isEmpty { return .afterRefusal }
-        if !stateMachine.context.recentRedirects.isEmpty { return .afterRedirect }
-        return .neutral
-    }
 }
 
 // MARK: - Sub-views
-
-private struct SectionHeader: View {
-    let title: String
-    let count: Int
-
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Brand.textMuted)
-                .textCase(.uppercase)
-            Text("\(count)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Brand.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 1)
-                .background(Brand.bgDarker)
-                .clipShape(Capsule())
-            Spacer()
-        }
-        .padding(.top, 4)
-    }
-}
 
 private struct MeetingCard: View {
     let meeting: Meeting
@@ -626,98 +531,3 @@ private struct ChatRow: View {
         .accessibilityHint("Open in Teams")
     }
 }
-
-private struct ConfirmingPanel: View {
-    let mutation: PendingMutation
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Confirm:")
-                .font(.callout)
-                .foregroundStyle(Brand.textMuted)
-            Text(mutation.description)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
-                Button(action: onConfirm) {
-                    Text("Yes")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Brand.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Yes, confirm \(mutation.description)")
-
-                Button(action: onCancel) {
-                    Text("No")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Brand.bg)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("No, cancel")
-            }
-            .padding(.top, 4)
-        }
-        .padding(14)
-        .background(Brand.bgDarker)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-private struct DisambiguatingPanel: View {
-    let utterance: String
-    let candidates: [Candidate]
-    let onSelect: (Candidate) -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("You said \u{201C}\(utterance)\u{201D}")
-                .font(.callout)
-                .foregroundStyle(Brand.textMuted)
-            Text("Which one?")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white)
-            ForEach(Array(candidates.enumerated()), id: \.element.id) { index, candidate in
-                Button {
-                    onSelect(candidate)
-                } label: {
-                    HStack {
-                        Text("\(index + 1).")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Brand.accent)
-                            .frame(width: 28, alignment: .leading)
-                        Text(candidate.label)
-                            .font(.body)
-                            .foregroundStyle(.white)
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .background(Brand.bg)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Option \(index + 1): \(candidate.label)")
-            }
-            Button("Cancel", action: onCancel)
-                .foregroundStyle(Brand.textMuted)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 4)
-        }
-        .padding(14)
-        .background(Brand.bgDarker)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}
-

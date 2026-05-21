@@ -6,9 +6,8 @@
 import Foundation
 @testable import CheckIn
 
-/// Test fixtures. Build a `CheckInSummary` with known senders so the
-/// entity matcher and the response generator both have something
-/// deterministic to chew on.
+/// Test fixtures. Build a deterministic `CheckInSummary` for tests to
+/// chew on. Field shapes match what `GraphSummaryService` would produce.
 enum Fixtures {
 
     static func summary(emails: [(from: String, subject: String)] = [],
@@ -44,24 +43,4 @@ enum Fixtures {
         ctx.summary = summary
         return ctx
     }
-
-    /// A Microsoft-prefix-heavy sender set that exercises the
-    /// firstNameFallbackCeiling suppression path in NLTaggerEntityMatcher.
-    static let microsoftPrefixSummary: CheckInSummary = summary(
-        emails: [
-            ("Microsoft Outlook", "Calendar reminder"),
-            ("Microsoft Teams", "You have unread messages"),
-            ("Microsoft 365 Message Center", "Service health"),
-            ("Microsoft Security", "Sign-in alert"),
-            ("Tony Smith", "Project update")
-        ]
-    )
-
-    /// Two distinct people sharing a first name — the disambiguation case.
-    static let twoTonysSummary: CheckInSummary = summary(
-        emails: [
-            ("Tony Smith", "Project update"),
-            ("Tony Jones", "Review request")
-        ]
-    )
 }
