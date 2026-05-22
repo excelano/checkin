@@ -264,9 +264,9 @@ final class GraphClient {
 
         for chat in data.value {
             guard let preview = chat.lastMessagePreview else { continue }
-            if !preview.messageType.isEmpty && preview.messageType != "message" {
-                continue
-            }
+            // Keep regular messages (and the rare empty-string `messageType`)
+            // and drop everything else — joins, leaves, renames, etc.
+            guard preview.messageType.isEmpty || preview.messageType == "message" else { continue }
             guard let from = preview.from?.user else { continue }
             if from.id == userID { continue }
             guard let sent = parseISO8601(preview.createdDateTime),

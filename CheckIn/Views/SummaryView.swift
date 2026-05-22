@@ -605,7 +605,11 @@ private struct RsvpButton: View {
         case .accepted: return "Accept meeting"
         case .tentativelyAccepted: return "Tentatively accept meeting"
         case .declined: return "Decline meeting"
-        default: return ""
+        case .none, .notResponded, .organizer:
+            // RsvpButton is only constructed with the three responseable
+            // cases; a meaningful fallback keeps VoiceOver from reading
+            // an empty string if the invariant ever breaks.
+            return "RSVP option"
         }
     }
 }
