@@ -7,15 +7,18 @@ import SwiftUI
 import UIKit
 
 /// The single main screen. Numbered list of meeting / emails / chats with
-/// per-row taps and swipes wired to the inbox actions. The voice surface
-/// — mic button plus listening / processing / speaking indicators — is
-/// shown only when the voice toggle is on.
+/// per-row taps and swipes wired to `InboxActions`. When the voice
+/// toggle is on, a microphone button is shown for visual chrome — tapping
+/// it cycles the local `isMicActive` flag and shows a listening indicator,
+/// but no recognizer runs. Voice plumbing is gone; the mic is a placeholder
+/// for the future voice surface.
 struct SummaryView: View {
     var stateMachine: StateMachine
     var authService: AuthService
     var inboxActions: InboxActions
 
     @AppStorage(AppStorageKey.voiceEnabled) private var voiceEnabled: Bool = true
+    @State private var isMicActive: Bool = false
 
     var body: some View {
         ZStack {
@@ -52,7 +55,6 @@ struct SummaryView: View {
                     .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Help")
-            .accessibilityHint("Show what you can ask")
 
             Spacer()
 
@@ -176,13 +178,6 @@ struct SummaryView: View {
 
     // MARK: - Tap actions
 
-    // The tap helpers skip `canOpenURL` for HTTPS passthrough URLs because
-    // `canOpenURL` reliably answers for declared custom schemes (`msteams://`,
-    // `ms-outlook://`) but returns false for universal links like
-    // `https://teams.microsoft.com/...` even when iOS would route them to
-    // the installed app. We trust `open(_:)` and use its completion for
-    // the fallback.
-
     private func joinOrCalendar(_ meeting: Meeting) {
         if let urlString = meeting.joinUrl,
            let url = DeepLinkService.passthrough(urlString) {
@@ -220,15 +215,10 @@ struct SummaryView: View {
     private var notFetchedState: some View {
         VStack(spacing: 12) {
             Spacer(minLength: 80)
-            Image(systemName: "mic.fill")
-                .font(.largeTitle)
-                .foregroundStyle(Brand.accent)
-            Text("Tap the mic and ask")
+            ProgressView().tint(Brand.accent)
+            Text("Loading your day…")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.white)
-            Text("\u{201C}what's on my plate\u{201D}")
-                .font(.body)
-                .foregroundStyle(Brand.textMuted)
             Spacer(minLength: 80)
         }
         .frame(maxWidth: .infinity)
@@ -251,122 +241,51 @@ struct SummaryView: View {
         .padding(.vertical, 60)
     }
 
-    // MARK: - Voice area (caption + mic)
+    // MARK: - Voice area (placeholder)
 
     @ViewBuilder
     private var voiceArea: some View {
         if voiceEnabled {
-            voiceAreaContent
-        }
-    }
-
-    private var voiceAreaContent: some View {
-        VStack(spacing: 14) {
-            switch stateMachine.currentState {
-            case .active(.listening):
-                ListeningIndicator()
-            case .active(.processing):
-                ThinkingIndicator()
-            case .active(.speaking(let text, _)):
-                CaptioningView(text: text)
-            default:
-                EmptyView()
+            VStack(spacing: 14) {
+                if isMicActive {
+                    ListeningIndicator()
+                }
+                micButton
             }
-            micButton
         }
     }
 
     private var micButton: some View {
         Button {
-            micTapped()
+            isMicActive.toggle()
         } label: {
-            Image(systemName: micSymbol)
+            Image(systemName: isMicActive ? "stop.fill" : "mic.fill")
                 .font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 76, height: 76)
-                .background(micEnabled ? Brand.accent : Brand.accentDim)
+                .background(Brand.accent)
                 .clipShape(Circle())
                 .shadow(color: Brand.accent.opacity(0.3), radius: 12)
         }
-        .accessibilityLabel(micAccessibilityLabel)
-        .accessibilityHint(micAccessibilityHint)
-    }
-
-    private var micSymbol: String {
-        switch stateMachine.currentState {
-        case .active(.listening), .active(.speaking):
-            return "stop.fill"
-        default:
-            return "mic.fill"
-        }
-    }
-
-    private var micEnabled: Bool {
-        switch stateMachine.currentState {
-        case .active(.processing): return false
-        case .active: return true
-        default: return false
-        }
-    }
-
-    private var micAccessibilityLabel: String {
-        switch stateMachine.currentState {
-        case .active(.listening): return "Stop listening"
-        case .active(.speaking): return "Stop speaking"
-        default: return "Microphone"
-        }
-    }
-
-    private var micAccessibilityHint: String {
-        switch stateMachine.currentState {
-        case .active(.idle): return "Tap to start a voice turn"
-        case .active(.listening): return "Tap to finish speaking"
-        case .active(.speaking): return "Tap to interrupt and speak"
-        default: return ""
-        }
+        .accessibilityLabel(isMicActive ? "Stop listening" : "Microphone")
+        .accessibilityHint("Voice commands are not wired up yet")
     }
 
     // MARK: - Actions
 
-    private func micTapped() {
-        switch stateMachine.currentState {
-        case .active(.idle):
-            stateMachine.transition(to: .active(.listening))
-        case .active(.listening):
-            // Tap-during-listening means "I'm done, process it." The
-            // coordinator finalizes the recognizer on this transition; the
-            // final transcript arrives shortly after as an isFinal update.
-            stateMachine.transition(to: .active(.processing))
-        case .active(.speaking):
-            // Barge-in.
-            stateMachine.transition(to: .active(.listening))
-        default:
-            break
-        }
-    }
-
     private func openHelp() {
         guard case .active = stateMachine.currentState else { return }
-        stateMachine.transition(to: .active(.helpDisplayed(returnTo: stateMachine.preferredRestState)))
+        stateMachine.transition(to: .active(.helpDisplayed))
     }
 
     private func openSettings() {
         guard case .active = stateMachine.currentState else { return }
-        stateMachine.transition(to: .active(.settingsDisplayed(returnTo: stateMachine.preferredRestState)))
+        stateMachine.transition(to: .active(.settingsDisplayed))
     }
 
     private func deepLink(_ url: URL?) {
         guard let url, UIApplication.shared.canOpenURL(url) else { return }
         UIApplication.shared.open(url)
-        // Deep-link is transient; if listening/speaking, return to rest.
-        switch stateMachine.currentState {
-        case .active(.idle): break
-        default: stateMachine.transition(to: .active(restState()))
-        }
-    }
-
-    private func restState() -> ActiveSubstate {
-        stateMachine.preferredRestState == .listening ? .listening : .idle
     }
 
     // MARK: - Sheet bindings
@@ -379,8 +298,8 @@ struct SummaryView: View {
             },
             set: { presented in
                 if !presented {
-                    if case .active(.helpDisplayed(let ret)) = stateMachine.currentState {
-                        stateMachine.transition(to: .active(ret == .listening ? .listening : .idle))
+                    if case .active(.helpDisplayed) = stateMachine.currentState {
+                        stateMachine.transition(to: .active(.idle))
                     }
                 }
             }
@@ -395,8 +314,8 @@ struct SummaryView: View {
             },
             set: { presented in
                 if !presented {
-                    if case .active(.settingsDisplayed(let ret)) = stateMachine.currentState {
-                        stateMachine.transition(to: .active(ret == .listening ? .listening : .idle))
+                    if case .active(.settingsDisplayed) = stateMachine.currentState {
+                        stateMachine.transition(to: .active(.idle))
                     }
                 }
             }

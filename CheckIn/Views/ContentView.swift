@@ -5,23 +5,14 @@
 
 import SwiftUI
 
-/// Top-level auth and onboarding gate. Routes off the
-/// `StateMachine.currentState` top-level case:
+/// Top-level auth gate. Routes off the state machine top-level case:
 ///   `.signedOut`  -> SignInView
-///   `.onboarding` -> OnboardingFlow
 ///   `.active`     -> SummaryView
-///
-/// On launch this bootstraps from `AuthService.isAuthenticated`: an existing
-/// MSAL token jumps past sign-in directly into onboarding (first run) or
-/// active. The state machine remains the single source of truth thereafter.
+/// Onboarding is gone; first launch lands directly in active after sign-in.
 struct ContentView: View {
     var authService: AuthService
     var stateMachine: StateMachine
     var inboxActions: InboxActions
-
-    @AppStorage(AppStorageKey.hasCompletedOnboarding) private var hasCompletedOnboarding: Bool = false
-    @AppStorage(AppStorageKey.listeningMode) private var listeningMode: String = "tapToTalk"
-    @AppStorage(AppStorageKey.voiceEnabled) private var voiceEnabled: Bool = true
 
     var body: some View {
         Group {
@@ -29,19 +20,22 @@ struct ContentView: View {
             case .signedOut:
                 SignInView(authService: authService,
                            onAuthenticated: bootstrapAfterAuth)
-            case .onboarding:
-                OnboardingFlow(stateMachine: stateMachine)
             case .active:
                 SummaryView(stateMachine: stateMachine,
                             authService: authService,
                             inboxActions: inboxActions)
+                    .task {
+                        // Initial fetch on landing in active. Skipped when
+                        // the summary is already loaded; the no-op re-task
+                        // on sheet dismissal then costs nothing.
+                        if stateMachine.context.summary == nil {
+                            await inboxActions.refresh()
+                        }
+                    }
             }
         }
         .onAppear { bootstrapOnLaunch() }
         .onChange(of: authService.isAuthenticated) { _, isAuth in
-            // Detect external deauthentication (server-revoked token, MDM
-            // wipe, manual cache clear) so SummaryView stops rendering with
-            // a dead session.
             if !isAuth, case .active = stateMachine.currentState {
                 stateMachine.transition(to: .signedOut)
                 stateMachine.resetContext()
@@ -49,10 +43,6 @@ struct ContentView: View {
         }
     }
 
-    /// On cold launch, if MSAL already restored a session, advance the
-    /// state machine past `.signedOut` directly. The state machine starts
-    /// at `.signedOut` per its declaration; this function jumps it to the
-    /// correct landing state.
     private func bootstrapOnLaunch() {
         guard case .signedOut = stateMachine.currentState else { return }
         if authService.isAuthenticated {
@@ -60,18 +50,8 @@ struct ContentView: View {
         }
     }
 
-    /// Land the user in onboarding (first run) or active (returning user).
-    /// Conversation mode opens directly to `.listening` — but only when
-    /// voice commands are enabled. Voice off forces tap-to-talk rest
-    /// semantics regardless of the stored listening-mode preference.
     private func bootstrapAfterAuth() {
-        if !hasCompletedOnboarding {
-            stateMachine.transition(to: .onboarding(.welcome))
-        } else {
-            let conversation = voiceEnabled && listeningMode == "conversation"
-            stateMachine.preferredRestState = conversation ? .listening : .idle
-            stateMachine.transition(to: .active(conversation ? .listening : .idle))
-        }
+        stateMachine.transition(to: .active(.idle))
     }
 }
 
