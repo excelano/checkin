@@ -91,6 +91,18 @@ struct SummaryView: View {
                         .listRowInsets(EdgeInsets(top: 16, leading: 0, bottom: 6, trailing: 0))
                 }
             }
+            if !summary.chats.isEmpty {
+                Section {
+                    ForEach(summary.chats) { chat in
+                        ChatRow(chat: chat, onTap: { openChat(chat) })
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }
+                } header: {
+                    sectionHeader(title: "Chats", count: summary.chats.count)
+                }
+            }
             if !summary.emails.isEmpty {
                 Section {
                     ForEach(summary.emails) { email in
@@ -118,18 +130,6 @@ struct SummaryView: View {
                     }
                 } header: {
                     sectionHeader(title: "Email", count: summary.emails.count)
-                }
-            }
-            if !summary.chats.isEmpty {
-                Section {
-                    ForEach(summary.chats) { chat in
-                        ChatRow(chat: chat, onTap: { openChat(chat) })
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    }
-                } header: {
-                    sectionHeader(title: "Teams", count: summary.chats.count)
                 }
             }
         }
@@ -306,6 +306,7 @@ private struct EmailRow: View {
                     Text(email.subject).font(.body).foregroundStyle(.white).lineLimit(2)
                 }
             }
+            .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -349,6 +350,7 @@ private struct ChatRow: View {
                     }
                 }
             }
+            .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

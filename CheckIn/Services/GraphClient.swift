@@ -105,12 +105,8 @@ final class GraphClient {
             guard let sent = parseISO8601(preview.createdDateTime),
                   sent > cutoff else { continue }
 
-            var topic = chat.topic ?? ""
-            if topic.isEmpty { topic = from.displayName }
-            if topic.isEmpty { topic = "Chat" }
-
             messages.append(ChatMessage(
-                topic: topic,
+                topic: chat.topic ?? "",
                 from: from.displayName,
                 preview: stripHTML(preview.body.content),
                 sent: sent,
