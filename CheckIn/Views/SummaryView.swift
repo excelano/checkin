@@ -229,7 +229,7 @@ struct SummaryView: View {
             Text("Nothing pending.")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.white)
-            Text("Inbox at zero, no Teams pings, no meeting up next.")
+            Text("No meetings in the next 24 hours, no pending chats, no unread emails.")
                 .font(.callout)
                 .foregroundStyle(Brand.textMuted)
                 .multilineTextAlignment(.center)
