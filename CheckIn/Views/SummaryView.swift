@@ -11,7 +11,10 @@ struct SummaryView: View {
     var authService: AuthService
 
     @State private var showSettings = false
-    @State private var showConflictSheet = false
+    /// The meeting whose conflict the user wants to resolve. Driving the
+    /// sheet via `.sheet(item:)` (rather than a Bool + separate id) means
+    /// the sheet correctly targets whichever meeting was long-pressed.
+    @State private var conflictTarget: Meeting?
 
     var body: some View {
         ZStack {
@@ -33,8 +36,8 @@ struct SummaryView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(authService: authService)
         }
-        .sheet(isPresented: $showConflictSheet) {
-            ConflictResolutionSheet(inbox: inbox)
+        .sheet(item: $conflictTarget) { target in
+            ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
         }
     }
 
@@ -104,7 +107,8 @@ struct SummaryView: View {
                                 onTap: { joinOrCalendar(meeting) },
                                 onRsvp: { response in
                                     Task { await inbox.respondToMeeting(response) }
-                                })
+                                },
+                                onConflictTap: { conflictTarget = meeting })
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 16, leading: 0, bottom: 6, trailing: 0))
@@ -116,7 +120,9 @@ struct SummaryView: View {
             if !summary.laterToday.isEmpty {
                 Section {
                     ForEach(summary.laterToday) { meeting in
-                        LaterMeetingRow(meeting: meeting, onTap: { joinOrCalendar(meeting) })
+                        LaterMeetingRow(meeting: meeting,
+                                        onTap: { joinOrCalendar(meeting) },
+                                        onConflictTap: { conflictTarget = meeting })
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
@@ -303,7 +309,7 @@ struct SummaryView: View {
     private func meetingContextMenu(for meeting: Meeting) -> some View {
         if meeting.hasConflict {
             Button {
-                showConflictSheet = true
+                conflictTarget = meeting
             } label: {
                 Label("Resolve conflict", systemImage: "exclamationmark.triangle")
             }
@@ -521,6 +527,7 @@ private struct MeetingCard: View {
     let meeting: Meeting
     let onTap: () -> Void
     let onRsvp: (MeetingResponse) -> Void
+    let onConflictTap: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -551,18 +558,10 @@ private struct MeetingCard: View {
                                 .lineLimit(2)
                         }
                     }
-                    if meeting.hasConflict {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                            Text("Overlaps another meeting")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                    }
                 }
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, meeting.hasConflict ? 6 : 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
@@ -570,6 +569,25 @@ private struct MeetingCard: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint("Open in Outlook calendar")
+
+            if meeting.hasConflict {
+                Button(action: onConflictTap) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                        Text("Overlaps another meeting")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Overlaps another meeting")
+                .accessibilityHint("Open conflict resolution")
+            }
 
             switch meeting.responseStatus {
             case .notResponded:
@@ -656,8 +674,14 @@ private struct MeetingCard: View {
 
 private struct ConflictResolutionSheet: View {
     var inbox: Inbox
+    let primaryMeetingId: String
 
     @Environment(\.dismiss) private var dismiss
+    /// IDs captured when the sheet opens. Rows render in this order from
+    /// live Inbox state; ids whose meeting no longer exists (deleted)
+    /// are silently skipped. Keeps the sheet stable when any meeting is
+    /// removed — only that row disappears.
+    @State private var trackedIds: [String] = []
 
     var body: some View {
         NavigationStack {
@@ -669,24 +693,15 @@ private struct ConflictResolutionSheet: View {
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
-                    if let meeting = inbox.summary?.meeting {
-                        ConflictMeetingRow(
-                            meeting: meeting,
-                            onRsvp: { response in
-                                Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
-                            },
-                            onDelete: {
-                                Task { await inbox.deleteMeeting(meetingId: meeting.id) }
-                            }
-                        )
-                        ForEach(conflicting(with: meeting)) { other in
+                    ForEach(trackedIds, id: \.self) { id in
+                        if let meeting = lookupMeeting(id: id) {
                             ConflictMeetingRow(
-                                meeting: other,
+                                meeting: meeting,
                                 onRsvp: { response in
-                                    Task { await inbox.respondToMeeting(response, meetingId: other.id) }
+                                    Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
                                 },
                                 onDelete: {
-                                    Task { await inbox.deleteMeeting(meetingId: other.id) }
+                                    Task { await inbox.deleteMeeting(meetingId: meeting.id) }
                                 }
                             )
                         }
@@ -703,14 +718,35 @@ private struct ConflictResolutionSheet: View {
                         .foregroundStyle(Brand.accent)
                 }
             }
+            .onAppear { initializeTrackedIds() }
         }
         .preferredColorScheme(.dark)
     }
 
-    private func conflicting(with meeting: Meeting) -> [Meeting] {
-        (inbox.summary?.laterToday ?? []).filter { other in
-            other.start < meeting.end && meeting.start < other.end
+    /// Snapshot the primary + every meeting overlapping it at open time.
+    /// Subsequent renders pull live state by id, so RSVP changes flow
+    /// through and deletions just drop the corresponding row.
+    private func initializeTrackedIds() {
+        guard trackedIds.isEmpty else { return }
+        var ids = [primaryMeetingId]
+        if let primary = lookupMeeting(id: primaryMeetingId) {
+            let next = inbox.summary?.meeting
+            let later = inbox.summary?.laterToday ?? []
+            let candidates = [next].compactMap { $0 } + later
+            ids += candidates
+                .filter { other in
+                    other.id != primary.id
+                        && other.start < primary.end
+                        && primary.start < other.end
+                }
+                .map(\.id)
         }
+        trackedIds = ids
+    }
+
+    private func lookupMeeting(id: String) -> Meeting? {
+        if let m = inbox.summary?.meeting, m.id == id { return m }
+        return inbox.summary?.laterToday.first(where: { $0.id == id })
     }
 }
 
@@ -804,30 +840,47 @@ private struct ConflictMeetingRow: View {
 private struct LaterMeetingRow: View {
     let meeting: Meeting
     let onTap: () -> Void
+    let onConflictTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: "calendar")
-                    .foregroundStyle(Brand.accent)
-                    .frame(width: 20)
-                Text(formatTimeOfDay(meeting.start))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Brand.accent)
-                Text(meeting.subject)
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
+        HStack(spacing: 12) {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar")
+                        .foregroundStyle(Brand.accent)
+                        .frame(width: 20)
+                    Text(formatTimeOfDay(meeting.start))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Brand.accent)
+                    Text(meeting.subject)
+                        .font(.body)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(formatTimeOfDay(meeting.start)): \(meeting.subject)")
+            .accessibilityHint("Open in Teams or Outlook calendar")
+
+            if meeting.hasConflict {
+                Button(action: onConflictTap) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Overlaps another meeting")
+                .accessibilityHint("Open conflict resolution")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(formatTimeOfDay(meeting.start)): \(meeting.subject)")
-        .accessibilityHint("Open in Teams or Outlook calendar")
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

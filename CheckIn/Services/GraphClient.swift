@@ -56,19 +56,17 @@ final class GraphClient {
                  parseGraphDate(e.start.dateTime, timeZone: e.start.timeZone),
                  parseGraphDate(e.end.dateTime, timeZone: e.end.timeZone))
             }
-        guard let first = attendable.first else { return (nil, []) }
+        guard !attendable.isEmpty else { return (nil, []) }
 
         // Conflict = any other attendable event whose time range overlaps
-        // the next meeting's range. Half-open intervals so back-to-back
-        // meetings (one ending exactly when the next starts) don't count.
-        // Only computed for the next meeting in v1 — later-today rows are
-        // informational.
-        let firstHasConflict = attendable.dropFirst().contains { other in
-            other.start < first.end && first.start < other.end
-        }
-
+        // this one. Half-open intervals so back-to-back meetings (one
+        // ending exactly when the next starts) don't count. Computed for
+        // every meeting (n²/2 with n ≤ 10).
         let meetings: [Meeting] = attendable.enumerated().map { (i, t) in
             let response = MeetingResponse(rawValue: t.event.responseStatus?.response ?? "") ?? .none
+            let hasConflict = attendable.enumerated().contains { (j, other) in
+                i != j && other.start < t.end && t.start < other.end
+            }
             return Meeting(
                 id: t.event.id,
                 subject: t.event.subject,
@@ -78,7 +76,7 @@ final class GraphClient {
                 end: t.end,
                 joinUrl: t.event.onlineMeeting?.joinUrl,
                 responseStatus: response,
-                hasConflict: i == 0 ? firstHasConflict : false
+                hasConflict: hasConflict
             )
         }
 

@@ -263,27 +263,31 @@ final class Inbox {
     /// Optimistic. Mutates the matching meeting's `responseStatus`
     /// immediately so the UI updates, and reverts on failure. After a
     /// successful RSVP, also marks any invite emails still sitting unread
-    /// in the inbox as read. Operates on either `summary.meeting` or the
-    /// matching entry in `summary.laterToday`.
+    /// in the inbox as read, and recomputes `hasConflict` on every meeting
+    /// so a Decline removes the warning from the meetings that were
+    /// previously conflicting with it. Operates on either `summary.meeting`
+    /// or the matching entry in `summary.laterToday`.
     func respondToMeeting(_ response: MeetingResponse, meetingId: String? = nil) async {
         let id = meetingId ?? summary?.meeting?.id
         guard let id, let meeting = meetingWithId(id) else { return }
         let previous = meeting.responseStatus
         setMeeting(meeting.with(responseStatus: response))
+        recomputeConflicts()
         do {
             try await graphClient.respondToMeeting(id: meeting.id, response: response)
             await markMatchingInviteEmailsRead(for: meeting)
         } catch {
             logger.error("respondToMeeting(\(response.rawValue)) failed: \(error.localizedDescription, privacy: .public)")
             setMeeting(meeting.with(responseStatus: previous))
+            recomputeConflicts()
         }
     }
 
     /// Optimistically remove the meeting from the summary, then DELETE
     /// via Graph. If it was the "next" meeting, the first `laterToday`
-    /// meeting (if any) is promoted into its place. `hasConflict` on the
-    /// promoted meeting may be stale (we only compute it server-side for
-    /// the original next meeting); pull-to-refresh recomputes.
+    /// meeting (if any) is promoted into its place. Recomputes
+    /// `hasConflict` on the remaining meetings — a deletion may resolve
+    /// conflicts elsewhere.
     func deleteMeeting(meetingId: String) async {
         guard let meeting = meetingWithId(meetingId) else { return }
         let snapshot = summary
@@ -298,12 +302,43 @@ final class Inbox {
         } else if let idx = summary?.laterToday.firstIndex(where: { $0.id == meetingId }) {
             summary?.laterToday.remove(at: idx)
         }
+        recomputeConflicts()
 
         do {
             try await graphClient.deleteEvent(id: meeting.id)
         } catch {
             logger.error("deleteEvent failed: \(error.localizedDescription, privacy: .public)")
             summary = snapshot
+        }
+    }
+
+    /// Recompute `hasConflict` on every meeting based on the current
+    /// local state. Declined meetings are excluded from both sides of
+    /// the overlap check — they don't trigger a warning on themselves
+    /// (the user isn't going) and they don't count as conflicts for
+    /// other meetings. Cheap; bounded by 10 meetings in the window.
+    private func recomputeConflicts() {
+        guard summary != nil else { return }
+        let all = ([summary?.meeting].compactMap { $0 } + (summary?.laterToday ?? []))
+
+        if let m = summary?.meeting {
+            summary?.meeting = m.with(hasConflict: overlapsAny(m, in: all))
+        }
+        if var later = summary?.laterToday {
+            for i in later.indices {
+                later[i] = later[i].with(hasConflict: overlapsAny(later[i], in: all))
+            }
+            summary?.laterToday = later
+        }
+    }
+
+    private func overlapsAny(_ m: Meeting, in all: [Meeting]) -> Bool {
+        if m.responseStatus == .declined { return false }
+        return all.contains { other in
+            other.id != m.id
+                && other.responseStatus != .declined
+                && other.start < m.end
+                && m.start < other.end
         }
     }
 

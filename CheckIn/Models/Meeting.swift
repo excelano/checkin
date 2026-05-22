@@ -35,6 +35,18 @@ struct Meeting: Identifiable {
                 responseStatus: responseStatus,
                 hasConflict: hasConflict)
     }
+
+    func with(hasConflict: Bool) -> Meeting {
+        Meeting(id: id,
+                subject: subject,
+                organizer: organizer,
+                organizerEmail: organizerEmail,
+                start: start,
+                end: end,
+                joinUrl: joinUrl,
+                responseStatus: responseStatus,
+                hasConflict: hasConflict)
+    }
 }
 
 /// Mirrors Graph's `responseStatus.response` values verbatim.
