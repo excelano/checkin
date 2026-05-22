@@ -9,6 +9,8 @@ struct ContentView: View {
     var authService: AuthService
     var inbox: Inbox
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         Group {
             if authService.isAuthenticated {
@@ -22,6 +24,11 @@ struct ContentView: View {
                     }
             } else {
                 SignInView(authService: authService)
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active && authService.isAuthenticated {
+                Task { await inbox.refreshIfStale() }
             }
         }
     }

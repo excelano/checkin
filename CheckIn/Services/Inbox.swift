@@ -13,6 +13,7 @@ final class Inbox {
     private let graphClient: GraphClient
     private let teamsEnabled: Bool
     private var didFetchUserID = false
+    private var lastRefreshedAt: Date?
 
     @ObservationIgnored private let logger = Logger(subsystem: "com.excelano.checkin", category: "inbox")
 
@@ -42,6 +43,17 @@ final class Inbox {
                                  emails: emailsResult.emails,
                                  chats: await chats,
                                  totalUnreadEmails: emailsResult.totalCount)
+        lastRefreshedAt = Date()
+    }
+
+    /// Skip the refresh if the last one finished within `threshold` seconds.
+    /// Used by the scene-foreground hook so quick app-switches don't trigger
+    /// back-to-back Graph fetches.
+    func refreshIfStale(threshold: TimeInterval = 30) async {
+        if let last = lastRefreshedAt, Date().timeIntervalSince(last) < threshold {
+            return
+        }
+        await refresh()
     }
 
     /// Optimistic: drops the row immediately, restores it (in received-time
