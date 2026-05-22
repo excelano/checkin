@@ -24,7 +24,8 @@ enum Constants {
     ]
 
     static let teamsScopes = [
-        "Chat.ReadWrite"
+        "Chat.ReadWrite",
+        "Presence.ReadWrite"
     ]
 
     static let teamsEnabled: Bool = true

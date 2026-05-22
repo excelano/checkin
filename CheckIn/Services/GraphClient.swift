@@ -112,6 +112,37 @@ final class GraphClient {
         try await delete("/me/events/\(id)")
     }
 
+    /// Current Teams presence (collapsed to our smaller enum).
+    /// Presence.ReadWrite.User required.
+    func fetchPresence() async throws -> TeamsPresence {
+        let data: PresenceResponse = try await get("/me/presence", query: [:])
+        return TeamsPresence(graphAvailability: data.availability)
+    }
+
+    /// Pin the user's preferred presence — overrides Teams' own
+    /// auto-detection (which would otherwise flip the user to "In a
+    /// meeting" or "Available" based on the calendar). Stays for
+    /// `expirationDuration` (4 hours here, matching Graph's default)
+    /// or until cleared by `clearUserPreferredPresence`.
+    func setUserPreferredPresence(_ presence: TeamsPresence) async throws {
+        guard let availability = presence.graphAvailability,
+              let activity = presence.graphActivity else { return }
+        try await post(
+            "/me/presence/setUserPreferredPresence",
+            body: SetPresenceBody(
+                availability: availability,
+                activity: activity,
+                expirationDuration: "PT4H"
+            )
+        )
+    }
+
+    /// Drop the user-preferred presence so Teams resumes auto-detection.
+    /// POSTs an empty body.
+    func clearUserPreferredPresence() async throws {
+        try await emptyPost("/me/presence/clearUserPreferredPresence")
+    }
+
     /// Accept/tentative/decline an event. Graph returns 202 with no body.
     /// `sendResponse: true` matches Outlook's default behavior — the
     /// organizer's tracking is updated.
@@ -197,6 +228,16 @@ final class GraphClient {
     /// Returns the IDs that came back non-2xx so the caller can
     /// selectively revert.
     func batchMarkRead(ids: [String]) async throws -> Set<String> {
+        try await batchSetReadState(ids: ids, isRead: true)
+    }
+
+    /// Bulk mark-unread via `/$batch`. Used by the undo path so a
+    /// "Marked 20 read" action can be reversed in one round trip.
+    func batchMarkUnread(ids: [String]) async throws -> Set<String> {
+        try await batchSetReadState(ids: ids, isRead: false)
+    }
+
+    private func batchSetReadState(ids: [String], isRead: Bool) async throws -> Set<String> {
         var failed: Set<String> = []
         for chunk in ids.batched(by: 20) {
             let requests = chunk.enumerated().map { (i, id) in
@@ -205,7 +246,7 @@ final class GraphClient {
                     method: "PATCH",
                     url: "/me/messages/\(id)",
                     headers: ["Content-Type": "application/json"],
-                    body: MarkReadBody(isRead: true)
+                    body: MarkReadBody(isRead: isRead)
                 )
             }
             let response: BatchResponse = try await postDecoded(
@@ -333,6 +374,15 @@ final class GraphClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
+        request = try await authorize(request)
+
+        let (data, response) = try await session.data(for: request)
+        try checkResponse(response, data: data, method: "POST", path: path)
+    }
+
+    private func emptyPost(_ path: String) async throws {
+        var request = URLRequest(url: try makeURL(path: path))
+        request.httpMethod = "POST"
         request = try await authorize(request)
 
         let (data, response) = try await session.data(for: request)

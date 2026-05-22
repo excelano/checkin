@@ -31,6 +31,14 @@ struct SummaryView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
+
+            VStack {
+                Spacer()
+                undoBanner
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 20)
+                    .animation(.easeInOut(duration: 0.25), value: inbox.pendingUndo?.summary)
+            }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) {
@@ -38,6 +46,36 @@ struct SummaryView: View {
         }
         .sheet(item: $conflictTarget) { target in
             ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
+        }
+    }
+
+    @ViewBuilder
+    private var undoBanner: some View {
+        if let action = inbox.pendingUndo {
+            HStack(spacing: 12) {
+                Text(action.summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                Spacer()
+                Button("Undo") {
+                    Task { await inbox.performUndo() }
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Brand.accent)
+                Button {
+                    inbox.dismissUndo()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.subheadline)
+                        .foregroundStyle(Brand.textMuted)
+                }
+                .accessibilityLabel("Dismiss undo")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Brand.bgDarker)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -57,28 +95,26 @@ struct SummaryView: View {
     }
 
     private var topBar: some View {
-        HStack {
-            // Reserves the slot for a future action; keeps the title
-            // centered against the gear button on the right.
-            Color.clear.frame(width: 44, height: 44)
-
-            Spacer()
-
+        ZStack {
             Text("CheckIn")
                 .font(.system(.headline, design: .monospaced))
                 .foregroundStyle(.white)
 
-            Spacer()
-
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.title2)
-                    .foregroundStyle(Brand.accent)
-                    .frame(width: 44, height: 44)
+            HStack {
+                PresenceMenu(presence: inbox.currentPresence) { selection in
+                    Task { await inbox.setPresence(selection) }
+                }
+                Spacer()
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.title2)
+                        .foregroundStyle(Brand.accent)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Settings")
             }
-            .accessibilityLabel("Settings")
         }
         .padding(.top, 8)
     }

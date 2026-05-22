@@ -18,12 +18,23 @@ final class Inbox {
     /// Graph error. Cleared by the next successful full refresh. Drives
     /// the orange warning banner in the summary view.
     private(set) var lastRefreshFailed: Bool = false
+    /// Most-recent reversible bulk action. Set by each bulk method, drives
+    /// the floating "Undo" banner in the summary view. Auto-clears after
+    /// 8 seconds; only one is held at a time (replaced by the next bulk
+    /// action). Nil when there's nothing to undo.
+    private(set) var pendingUndo: UndoableBulkAction?
+    /// Current Teams presence. Refreshed alongside the rest of the
+    /// summary; `setPresence(_:)` updates it optimistically and confirms
+    /// with the server. `.unknown` before the first successful fetch,
+    /// after sign-out, or when Teams is disabled.
+    private(set) var currentPresence: TeamsPresence = .unknown
 
     private let graphClient: GraphClient
     private let teamsEnabled: Bool
     private var didFetchUserID = false
     private var lastRefreshedAt: Date?
     private var didRequestBadgeAuthorization = false
+    @ObservationIgnored private var undoExpiryTask: Task<Void, Never>?
 
     private var emailTop: Int { showingAllEmails ? 999 : 20 }
 
@@ -44,7 +55,39 @@ final class Inbox {
         didFetchUserID = false
         lastRefreshedAt = nil
         lastRefreshFailed = false
+        pendingUndo = nil
+        undoExpiryTask?.cancel()
+        undoExpiryTask = nil
+        currentPresence = .unknown
         graphClient.clearUser()
+    }
+
+    /// Set a fresh undoable action, replacing whatever was there before
+    /// and restarting the 8-second auto-expiry timer.
+    private func setPendingUndo(_ action: UndoableBulkAction) {
+        pendingUndo = action
+        undoExpiryTask?.cancel()
+        undoExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard let self, !Task.isCancelled else { return }
+            self.pendingUndo = nil
+        }
+    }
+
+    /// User dismissed the undo banner without invoking it.
+    func dismissUndo() {
+        undoExpiryTask?.cancel()
+        undoExpiryTask = nil
+        pendingUndo = nil
+    }
+
+    /// Run the captured undo closure and clear the pending state.
+    func performUndo() async {
+        guard let action = pendingUndo else { return }
+        pendingUndo = nil
+        undoExpiryTask?.cancel()
+        undoExpiryTask = nil
+        await action.undo()
     }
 
     /// Toggle the email cap and refetch just the emails. No need to ripple
@@ -78,6 +121,7 @@ final class Inbox {
         async let meetingsT = fetchMeetings()
         async let emailsT = fetchEmails()
         async let chatsT = fetchChats(userIDReady: userIDReady)
+        async let presenceT = fetchPresence()
         let meetingsResult = await meetingsT
         let emailsResult = await emailsT
         let (chats, chatsFailed) = await chatsT
@@ -86,9 +130,31 @@ final class Inbox {
                                  emails: emailsResult.emails,
                                  chats: chats,
                                  totalUnreadEmails: emailsResult.totalCount)
+        currentPresence = await presenceT
         lastRefreshedAt = Date()
         lastRefreshFailed = anyFailed || meetingsResult.failed || emailsResult.failed || chatsFailed
         await updateAppBadge()
+    }
+
+    /// Set the user-preferred Teams presence, or clear it back to
+    /// auto-detection when passed `.unknown`. Optimistic UI; reverts on
+    /// failure. After a Reset, re-fetches the auto-detected state.
+    /// Also publishes a short-lived `presenceFeedback` string so the
+    /// user gets visible confirmation in the UI.
+    func setPresence(_ presence: TeamsPresence) async {
+        let previous = currentPresence
+        currentPresence = presence
+        do {
+            if presence == .unknown {
+                try await graphClient.clearUserPreferredPresence()
+                currentPresence = await fetchPresence()
+            } else {
+                try await graphClient.setUserPreferredPresence(presence)
+            }
+        } catch {
+            logger.error("setPresence(\(presence.displayName, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            currentPresence = previous
+        }
     }
 
     /// Sets the iOS app-icon badge to `unread emails + pending chats`. The
@@ -122,14 +188,15 @@ final class Inbox {
     /// Mark every visible email read in a single Graph `$batch`. Tops up
     /// from the server afterward if the cap was hiding additional unread.
     func markAllVisibleRead() async {
-        await performMarkRead(emails: summary?.emails ?? [])
+        let preserved = summary?.emails ?? []
+        await runBulkMarkRead(emails: preserved)
     }
 
     /// Mark the visible emails classified as "Other" by Microsoft's Focused
     /// Inbox ML. Leaves "Focused" emails alone.
     func markOtherInboxRead() async {
         let candidates = (summary?.emails ?? []).filter { $0.inferenceClassification == "other" }
-        await performMarkRead(emails: candidates)
+        await runBulkMarkRead(emails: candidates)
     }
 
     /// Mark meeting cancellations and RSVP responses (the noise that piles
@@ -137,14 +204,14 @@ final class Inbox {
     /// invite is left alone — the user might still need to RSVP to it.
     func markMeetingNoticesRead() async {
         let candidates = (summary?.emails ?? []).filter(\.isMeetingNotice)
-        await performMarkRead(emails: candidates)
+        await runBulkMarkRead(emails: candidates)
     }
 
     /// Mark visible emails that look like mailing-list traffic
     /// (RFC 2369 `List-Unsubscribe` header present).
     func markMailingListsRead() async {
         let candidates = (summary?.emails ?? []).filter { $0.isMailingList }
-        await performMarkRead(emails: candidates)
+        await runBulkMarkRead(emails: candidates)
     }
 
     /// Mark visible emails sent from a domain other than the signed-in
@@ -159,7 +226,7 @@ final class Inbox {
             let senderDomain = e.fromAddress[e.fromAddress.index(after: atIdx)...].lowercased()
             return senderDomain != userDomain
         }
-        await performMarkRead(emails: candidates)
+        await runBulkMarkRead(emails: candidates)
     }
 
     /// Exposes the user's mail domain so the view layer can compute the
@@ -172,7 +239,7 @@ final class Inbox {
     func markAllFromSenderRead(_ address: String) async {
         guard !address.isEmpty else { return }
         let candidates = (summary?.emails ?? []).filter { $0.fromAddress == address }
-        await performMarkRead(emails: candidates)
+        await runBulkMarkRead(emails: candidates)
     }
 
     /// Mark every visible email whose normalized subject matches. Strips
@@ -183,7 +250,32 @@ final class Inbox {
         let key = subject.normalizedSubjectKey
         guard !key.isEmpty else { return }
         let candidates = (summary?.emails ?? []).filter { $0.subject.normalizedSubjectKey == key }
-        await performMarkRead(emails: candidates)
+        await runBulkMarkRead(emails: candidates)
+    }
+
+    /// Shared entry point for the bulk mark-read variants. Runs the
+    /// optimistic mark-read pipeline and, on a non-empty input,
+    /// registers an undo that batch-marks the same IDs unread and
+    /// refetches the email list.
+    private func runBulkMarkRead(emails: [Email]) async {
+        guard !emails.isEmpty else { return }
+        let ids = emails.map(\.id)
+        await performMarkRead(emails: emails)
+        setPendingUndo(UndoableBulkAction(
+            summary: "Marked \(ids.count) read",
+            undo: { [weak self] in
+                await self?.undoMarkRead(ids: ids)
+            }
+        ))
+    }
+
+    private func undoMarkRead(ids: [String]) async {
+        _ = try? await graphClient.batchMarkUnread(ids: ids)
+        let result = await fetchEmails()
+        summary?.emails = result.emails
+        summary?.totalUnreadEmails = result.totalCount
+        if result.failed { lastRefreshFailed = true }
+        await updateAppBadge()
     }
 
     /// Optimistically removes the given emails from the visible list, sends
@@ -228,23 +320,35 @@ final class Inbox {
 
     /// Optimistically flips the flag on every visible email not already in
     /// the target state, sends a single Graph `$batch` PATCH, and reverts
-    /// only the emails that came back non-2xx.
+    /// only the emails that came back non-2xx. Registers an undo so the
+    /// reverse flip can be triggered from the floating banner.
     func setFlaggedAllVisible(_ flagged: Bool) async {
         let targets = (summary?.emails ?? []).filter { $0.isFlagged != flagged }
-        let ids = Set(targets.map(\.id))
+        let ids = targets.map(\.id)
         guard !ids.isEmpty else { return }
 
-        flipFlagged(matching: ids, to: flagged)
+        await batchFlipFlagged(ids: ids, to: flagged)
 
+        setPendingUndo(UndoableBulkAction(
+            summary: "\(flagged ? "Flagged" : "Unflagged") \(ids.count)",
+            undo: { [weak self] in
+                await self?.batchFlipFlagged(ids: ids, to: !flagged)
+            }
+        ))
+    }
+
+    private func batchFlipFlagged(ids: [String], to flagged: Bool) async {
+        let idsSet = Set(ids)
+        flipFlagged(matching: idsSet, to: flagged)
         do {
-            let failed = try await graphClient.batchSetFlagged(ids: Array(ids), flagged: flagged)
+            let failed = try await graphClient.batchSetFlagged(ids: ids, flagged: flagged)
             if !failed.isEmpty {
                 flipFlagged(matching: failed, to: !flagged)
-                logger.error("setFlaggedAllVisible(\(flagged)): \(failed.count) of \(ids.count) failed")
+                logger.error("batchFlipFlagged(\(flagged)): \(failed.count) of \(ids.count) failed")
             }
         } catch {
-            logger.error("setFlaggedAllVisible(\(flagged)) failed: \(error.localizedDescription, privacy: .public)")
-            flipFlagged(matching: ids, to: !flagged)
+            logger.error("batchFlipFlagged(\(flagged)) failed: \(error.localizedDescription, privacy: .public)")
+            flipFlagged(matching: idsSet, to: !flagged)
         }
     }
 
@@ -468,6 +572,26 @@ final class Inbox {
         } catch {
             logger.error("unreadEmails failed: \(error.localizedDescription, privacy: .public)")
             return ([], 0, true)
+        }
+    }
+
+    /// Captured by `setPendingUndo`; rendered by `SummaryView` as the
+    /// floating undo banner with the summary string and an Undo button
+    /// that calls `Inbox.performUndo`.
+    struct UndoableBulkAction {
+        let summary: String
+        let undo: @MainActor () async -> Void
+    }
+
+    /// Best-effort presence read. Failures don't bump `lastRefreshFailed`
+    /// — presence is a secondary concern, not critical to the panel.
+    private func fetchPresence() async -> TeamsPresence {
+        guard teamsEnabled else { return .unknown }
+        do {
+            return try await graphClient.fetchPresence()
+        } catch {
+            logger.error("fetchPresence failed: \(error.localizedDescription, privacy: .public)")
+            return .unknown
         }
     }
 

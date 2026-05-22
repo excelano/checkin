@@ -153,3 +153,14 @@ struct BatchResponseItem: Decodable {
     let id: String
     let status: Int
 }
+
+struct PresenceResponse: Decodable {
+    let availability: String
+    let activity: String
+}
+
+struct SetPresenceBody: Encodable {
+    let availability: String
+    let activity: String
+    let expirationDuration: String  // ISO 8601 duration, e.g., "PT4H"
+}
