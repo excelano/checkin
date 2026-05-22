@@ -123,16 +123,7 @@ final class Inbox {
     /// up after the actionable invite). The original `meetingRequest`
     /// invite is left alone — the user might still need to RSVP to it.
     func markMeetingNoticesRead() async {
-        let noise: Set<String> = [
-            "meetingCancelled",
-            "meetingAccepted",
-            "meetingTentativelyAccepted",
-            "meetingDeclined"
-        ]
-        let candidates = (summary?.emails ?? []).filter {
-            guard let t = $0.meetingMessageType else { return false }
-            return noise.contains(t)
-        }
+        let candidates = (summary?.emails ?? []).filter(\.isMeetingNotice)
         await performMarkRead(emails: candidates)
     }
 
@@ -288,6 +279,34 @@ final class Inbox {
         }
     }
 
+    /// Optimistically remove the meeting from the summary, then DELETE
+    /// via Graph. If it was the "next" meeting, the first `laterToday`
+    /// meeting (if any) is promoted into its place. `hasConflict` on the
+    /// promoted meeting may be stale (we only compute it server-side for
+    /// the original next meeting); pull-to-refresh recomputes.
+    func deleteMeeting(meetingId: String) async {
+        guard let meeting = meetingWithId(meetingId) else { return }
+        let snapshot = summary
+
+        if summary?.meeting?.id == meetingId {
+            if let promoted = summary?.laterToday.first {
+                summary?.meeting = promoted
+                summary?.laterToday.removeFirst()
+            } else {
+                summary?.meeting = nil
+            }
+        } else if let idx = summary?.laterToday.firstIndex(where: { $0.id == meetingId }) {
+            summary?.laterToday.remove(at: idx)
+        }
+
+        do {
+            try await graphClient.deleteEvent(id: meeting.id)
+        } catch {
+            logger.error("deleteEvent failed: \(error.localizedDescription, privacy: .public)")
+            summary = snapshot
+        }
+    }
+
     private func meetingWithId(_ id: String) -> Meeting? {
         if let m = summary?.meeting, m.id == id { return m }
         return summary?.laterToday.first(where: { $0.id == id })
@@ -303,15 +322,42 @@ final class Inbox {
         }
     }
 
-    /// Subject-matches against the three invite-side forms Outlook uses
-    /// ("Sprint Planning", "Updated: Sprint Planning", "Cancelled: Sprint
-    /// Planning"). Bounded to the local unread list, so it can't reach
-    /// beyond the 20 newest emails we already have.
+    /// Find invitation/update/cancellation emails for this meeting and
+    /// mark them read. Bounded to the local unread list, so it can't
+    /// reach beyond what we already have cached.
+    ///
+    /// Matching strategy is two-tiered:
+    /// 1. Standard subject match (using `normalizedSubjectKey` so
+    ///    Re:/Fwd: prefixes and whitespace don't get in the way) plus the
+    ///    "Updated:" and "Cancelled:" prefix variants Outlook uses.
+    /// 2. For confirmed meeting messages (Graph's `meetingMessageType`
+    ///    is set) coming from the meeting's organizer, a contains-match
+    ///    handles tenant-specific prefixes like "Meeting request:" or
+    ///    "Invitation:" — the two-factor (organizer + meeting-message)
+    ///    keeps false positives down.
     private func markMatchingInviteEmailsRead(for meeting: Meeting) async {
-        let target = meeting.subject.lowercased()
-        let acceptable: Set<String> = [target, "updated: \(target)", "cancelled: \(target)"]
+        let target = meeting.subject.normalizedSubjectKey
+        guard !target.isEmpty else { return }
+        let organizerEmail = meeting.organizerEmail?
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
         let matchIds = (summary?.emails ?? [])
-            .filter { acceptable.contains($0.subject.lowercased()) }
+            .filter { e in
+                let key = e.subject.normalizedSubjectKey
+                if key == target
+                    || key == "updated: \(target)"
+                    || key == "cancelled: \(target)" {
+                    return true
+                }
+                if let organizerEmail, !organizerEmail.isEmpty,
+                   e.fromAddress.lowercased() == organizerEmail,
+                   e.meetingMessageType != nil,
+                   key.contains(target) {
+                    return true
+                }
+                return false
+            }
             .map(\.id)
         for id in matchIds {
             await markRead(emailId: id)

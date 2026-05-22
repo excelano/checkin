@@ -45,4 +45,13 @@ enum MeetingResponse: String, Codable {
     case accepted
     case tentativelyAccepted
     case declined
+
+    /// False for events the user organizes or events with no invite
+    /// relationship (`.none`) — Graph rejects accept/decline on those.
+    var canRsvp: Bool {
+        switch self {
+        case .organizer, .none: return false
+        case .notResponded, .accepted, .tentativelyAccepted, .declined: return true
+        }
+    }
 }

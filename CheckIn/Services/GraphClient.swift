@@ -85,6 +85,14 @@ final class GraphClient {
         return (meetings.first, Array(meetings.dropFirst()))
     }
 
+    /// DELETE an event. For invitation/personal events this removes it
+    /// from the user's calendar. For events the user organizes Graph
+    /// also sends cancellations to attendees — the caller is expected to
+    /// gate that case.
+    func deleteEvent(id: String) async throws {
+        try await delete("/me/events/\(id)")
+    }
+
     /// Accept/tentative/decline an event. Graph returns 202 with no body.
     /// `sendResponse: true` matches Outlook's default behavior — the
     /// organizer's tracking is updated.

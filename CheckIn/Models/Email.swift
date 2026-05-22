@@ -60,3 +60,23 @@ struct Email: Identifiable {
               isMailingList: isMailingList)
     }
 }
+
+extension Email {
+    /// Graph `meetingMessageType` values that represent the noise that
+    /// piles up after the actionable invite — cancellations and RSVP
+    /// responses from other attendees. `meetingRequest` is intentionally
+    /// excluded; that's the original invite, still actionable.
+    static let meetingNoticeMessageTypes: Set<String> = [
+        "meetingCancelled",
+        "meetingAccepted",
+        "meetingTentativelyAccepted",
+        "meetingDeclined"
+    ]
+
+    /// True when this email is a meeting cancellation or RSVP response.
+    /// Drives the "Mark N meeting notices read" bulk action.
+    var isMeetingNotice: Bool {
+        guard let type = meetingMessageType else { return false }
+        return Self.meetingNoticeMessageTypes.contains(type)
+    }
+}

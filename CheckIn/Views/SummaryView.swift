@@ -309,28 +309,30 @@ struct SummaryView: View {
             }
             Divider()
         }
-        if meeting.responseStatus != .accepted {
-            Button {
-                Task { await inbox.respondToMeeting(.accepted, meetingId: meeting.id) }
-            } label: {
-                Label("Accept", systemImage: "checkmark")
+        if meeting.responseStatus.canRsvp {
+            if meeting.responseStatus != .accepted {
+                Button {
+                    Task { await inbox.respondToMeeting(.accepted, meetingId: meeting.id) }
+                } label: {
+                    Label("Accept", systemImage: "checkmark")
+                }
             }
-        }
-        if meeting.responseStatus != .tentativelyAccepted {
-            Button {
-                Task { await inbox.respondToMeeting(.tentativelyAccepted, meetingId: meeting.id) }
-            } label: {
-                Label("Tentative", systemImage: "questionmark")
+            if meeting.responseStatus != .tentativelyAccepted {
+                Button {
+                    Task { await inbox.respondToMeeting(.tentativelyAccepted, meetingId: meeting.id) }
+                } label: {
+                    Label("Tentative", systemImage: "questionmark")
+                }
             }
-        }
-        if meeting.responseStatus != .declined {
-            Button(role: .destructive) {
-                Task { await inbox.respondToMeeting(.declined, meetingId: meeting.id) }
-            } label: {
-                Label("Decline", systemImage: "xmark")
+            if meeting.responseStatus != .declined {
+                Button(role: .destructive) {
+                    Task { await inbox.respondToMeeting(.declined, meetingId: meeting.id) }
+                } label: {
+                    Label("Decline", systemImage: "xmark")
+                }
             }
+            Divider()
         }
-        Divider()
         if let urlString = meeting.joinUrl {
             Button {
                 UIPasteboard.general.string = urlString
@@ -338,7 +340,8 @@ struct SummaryView: View {
                 Label("Copy join link", systemImage: "doc.on.doc")
             }
         }
-        if let email = meeting.organizerEmail, !email.isEmpty {
+        if meeting.responseStatus.canRsvp,
+           let email = meeting.organizerEmail, !email.isEmpty {
             Button {
                 UIPasteboard.general.string = email
             } label: {
@@ -349,6 +352,19 @@ struct SummaryView: View {
             deepLink(DeepLinkService.outlookCalendar)
         } label: {
             Label("Open Outlook Calendar", systemImage: "calendar")
+        }
+        // Delete is hidden when Decline is already available — they
+        // functionally do the same thing from the user's perspective
+        // (get the meeting off the day's view). Decline is shown
+        // whenever the user can RSVP and hasn't already declined.
+        let canDecline = meeting.responseStatus.canRsvp && meeting.responseStatus != .declined
+        if !canDecline {
+            Divider()
+            Button(role: .destructive) {
+                Task { await inbox.deleteMeeting(meetingId: meeting.id) }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 
@@ -434,21 +450,11 @@ private struct BulkActionsMenu: View {
     let onShowAll: () -> Void
     let onShowCapped: () -> Void
 
-    private static let meetingNoiseTypes: Set<String> = [
-        "meetingCancelled",
-        "meetingAccepted",
-        "meetingTentativelyAccepted",
-        "meetingDeclined"
-    ]
-
     var body: some View {
         let unflaggedCount = emails.filter { !$0.isFlagged }.count
         let flaggedCount = emails.count - unflaggedCount
         let otherCount = emails.filter { $0.inferenceClassification == "other" }.count
-        let meetingNoticeCount = emails.filter {
-            guard let t = $0.meetingMessageType else { return false }
-            return Self.meetingNoiseTypes.contains(t)
-        }.count
+        let meetingNoticeCount = emails.filter(\.isMeetingNotice).count
         let mailingListCount = emails.filter { $0.isMailingList }.count
         let canExpand = !isShowingAll && totalUnread > emails.count
 
@@ -664,13 +670,25 @@ private struct ConflictResolutionSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
                     if let meeting = inbox.summary?.meeting {
-                        ConflictMeetingRow(meeting: meeting) { response in
-                            Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
-                        }
-                        ForEach(conflicting(with: meeting)) { other in
-                            ConflictMeetingRow(meeting: other) { response in
-                                Task { await inbox.respondToMeeting(response, meetingId: other.id) }
+                        ConflictMeetingRow(
+                            meeting: meeting,
+                            onRsvp: { response in
+                                Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
+                            },
+                            onDelete: {
+                                Task { await inbox.deleteMeeting(meetingId: meeting.id) }
                             }
+                        )
+                        ForEach(conflicting(with: meeting)) { other in
+                            ConflictMeetingRow(
+                                meeting: other,
+                                onRsvp: { response in
+                                    Task { await inbox.respondToMeeting(response, meetingId: other.id) }
+                                },
+                                onDelete: {
+                                    Task { await inbox.deleteMeeting(meetingId: other.id) }
+                                }
+                            )
                         }
                     }
                 }
@@ -699,6 +717,7 @@ private struct ConflictResolutionSheet: View {
 private struct ConflictMeetingRow: View {
     let meeting: Meeting
     let onRsvp: (MeetingResponse) -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -709,7 +728,7 @@ private struct ConflictMeetingRow: View {
             Text("\(formatTimeOfDay(meeting.start)) \u{2013} \(formatTimeOfDay(meeting.end))")
                 .font(.subheadline)
                 .foregroundStyle(Brand.accent)
-            if !meeting.organizer.isEmpty {
+            if meeting.responseStatus.canRsvp, !meeting.organizer.isEmpty {
                 Text("with \(meeting.organizer)")
                     .font(.subheadline)
                     .foregroundStyle(Brand.textMuted)
@@ -724,10 +743,14 @@ private struct ConflictMeetingRow: View {
                     .background(Brand.bg)
                     .clipShape(Capsule())
             }
-            HStack(spacing: 8) {
-                rsvpButton(.accepted, label: "Accept", icon: "checkmark")
-                rsvpButton(.tentativelyAccepted, label: "Maybe", icon: "questionmark")
-                rsvpButton(.declined, label: "Decline", icon: "xmark")
+            if meeting.responseStatus.canRsvp {
+                HStack(spacing: 8) {
+                    rsvpButton(.accepted, label: "Accept", icon: "checkmark")
+                    rsvpButton(.tentativelyAccepted, label: "Maybe", icon: "questionmark")
+                    rsvpButton(.declined, label: "Decline", icon: "xmark")
+                }
+            } else {
+                deleteButton
             }
         }
         .padding(14)
@@ -753,12 +776,27 @@ private struct ConflictMeetingRow: View {
         .buttonStyle(.plain)
     }
 
+    private var deleteButton: some View {
+        Button(action: onDelete) {
+            HStack(spacing: 4) {
+                Image(systemName: "xmark").font(.subheadline.weight(.semibold))
+                Text("Delete").font(.subheadline.weight(.medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Brand.bg)
+            .foregroundStyle(.red)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     private var respondedLabel: String? {
         switch meeting.responseStatus {
         case .accepted: return "Accepted"
         case .tentativelyAccepted: return "Tentative"
         case .declined: return "Declined"
-        default: return nil
+        case .organizer, .none, .notResponded: return nil
         }
     }
 }
