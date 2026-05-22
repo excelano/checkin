@@ -10,7 +10,6 @@ struct SummaryView: View {
     var inbox: Inbox
     var authService: AuthService
 
-    @State private var showHelp = false
     @State private var showSettings = false
 
     var body: some View {
@@ -26,9 +25,6 @@ struct SummaryView: View {
             .padding(.bottom, 24)
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $showHelp) {
-            HelpView()
-        }
         .sheet(isPresented: $showSettings) {
             SettingsView(authService: authService)
         }
@@ -36,15 +32,9 @@ struct SummaryView: View {
 
     private var topBar: some View {
         HStack {
-            Button {
-                showHelp = true
-            } label: {
-                Image(systemName: "questionmark.circle")
-                    .font(.title2)
-                    .foregroundStyle(Brand.accent)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Help")
+            // Reserves the slot for a future action; keeps the title
+            // centered against the gear button on the right.
+            Color.clear.frame(width: 44, height: 44)
 
             Spacer()
 

@@ -32,7 +32,7 @@ final class GraphClient {
         let data: GraphList<CalendarEventResponse> = try await get("/me/calendarView", query: [
             "startDateTime": formatter.string(from: now),
             "endDateTime": formatter.string(from: end),
-            "$top": "5",
+            "$top": "10",
             "$orderby": "start/dateTime",
             "$select": "id,subject,organizer,start,onlineMeeting,responseStatus,isCancelled"
         ])

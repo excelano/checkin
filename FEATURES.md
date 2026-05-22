@@ -25,7 +25,6 @@ What a user can do, mapped to the entry point in the UI.
 | Open a chat in Teams | Tap a chat row (falls back to the Teams app if no chat URL) |
 | Override the Azure App Registration with your own | Settings → "Custom Azure registration" → enter Application (client) ID and/or Directory (tenant) ID → "Save and sign in" (signs out, rebuilds MSAL, sends you to Sign In) |
 | Revert to Excelano's default registration | Settings → "Reset to defaults" |
-| Open the Help sheet | Top-left "?" button (placeholder content) |
 | Open the Settings sheet | Top-right gear button, visible on both the summary screen and the sign-in screen (so a stuck custom registration can be undone before sign-in) |
 
 ## Not yet supported
