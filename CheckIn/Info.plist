@@ -40,10 +40,6 @@
 		<string>ms-outlook</string>
 		<string>msteams</string>
 	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>CheckIn uses the microphone for voice queries about your calendar, email, and chats. Speech recognition runs on-device; nothing is sent to Apple or any other server.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>CheckIn uses on-device speech recognition to understand your voice queries. Audio and transcripts stay on your device.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>
