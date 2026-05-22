@@ -179,17 +179,6 @@ struct SummaryView: View {
         if let urlString = meeting.joinUrl,
            let url = DeepLinkService.passthrough(urlString) {
             UIApplication.shared.open(url) { ok in
-                if !ok { openEventOrCalendar(meeting) }
-            }
-            return
-        }
-        openEventOrCalendar(meeting)
-    }
-
-    private func openEventOrCalendar(_ meeting: Meeting) {
-        if let urlString = meeting.webLink,
-           let url = DeepLinkService.passthrough(urlString) {
-            UIApplication.shared.open(url) { ok in
                 if !ok { deepLink(DeepLinkService.outlookCalendar) }
             }
             return
@@ -326,6 +315,12 @@ private struct EmailRow: View {
                             .foregroundStyle(Brand.textMuted)
                     }
                     Text(email.subject).font(.body).foregroundStyle(.white).lineLimit(2)
+                    if !email.preview.isEmpty {
+                        Text(email.preview)
+                            .font(.footnote)
+                            .foregroundStyle(Brand.textMuted)
+                            .lineLimit(2)
+                    }
                 }
             }
             .padding(.horizontal, 14)

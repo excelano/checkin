@@ -13,8 +13,4 @@ struct Meeting: Identifiable {
     /// From `onlineMeeting.joinUrl` when present. iOS routes the URL to
     /// Teams when installed. Nil when the event has no online meeting.
     let joinUrl: String?
-    /// Graph's `webLink` — opens the specific event in Outlook on the web.
-    /// iOS Outlook universal-links the host, so it lands on the event in
-    /// the installed app when available.
-    let webLink: String?
 }

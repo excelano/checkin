@@ -34,7 +34,7 @@ final class GraphClient {
             "endDateTime": formatter.string(from: end),
             "$top": "1",
             "$orderby": "start/dateTime",
-            "$select": "subject,organizer,start,onlineMeeting,webLink"
+            "$select": "subject,organizer,start,onlineMeeting"
         ])
 
         guard let event = data.value.first else { return nil }
@@ -43,8 +43,7 @@ final class GraphClient {
             subject: event.subject,
             organizer: event.organizer.emailAddress.name,
             start: parseGraphDate(event.start.dateTime, timeZone: event.start.timeZone),
-            joinUrl: event.onlineMeeting?.joinUrl,
-            webLink: event.webLink
+            joinUrl: event.onlineMeeting?.joinUrl
         )
     }
 
@@ -59,7 +58,7 @@ final class GraphClient {
                 "$orderby": "receivedDateTime desc",
                 "$top": "20",
                 "$count": "true",
-                "$select": "id,subject,from,receivedDateTime,flag"
+                "$select": "id,subject,from,bodyPreview,receivedDateTime,flag"
             ],
             headers: ["ConsistencyLevel": "eventual"]
         )
@@ -70,6 +69,7 @@ final class GraphClient {
                 subject: e.subject,
                 from: e.from.emailAddress.name,
                 fromAddress: e.from.emailAddress.address ?? "",
+                preview: e.bodyPreview,
                 received: parseISO8601(e.receivedDateTime) ?? Date(),
                 isFlagged: e.flag?.flagStatus == "flagged"
             )
@@ -245,7 +245,6 @@ private struct CalendarEventResponse: Decodable {
     let organizer: OrganizerResponse
     let start: DateTimeResponse
     let onlineMeeting: OnlineMeetingResponse?
-    let webLink: String?
 }
 
 private struct OnlineMeetingResponse: Decodable {
@@ -270,6 +269,7 @@ private struct EmailResponse: Decodable {
     let id: String
     let subject: String
     let from: EmailFromResponse
+    let bodyPreview: String
     let receivedDateTime: String
     let flag: FlagResponse?
 }
