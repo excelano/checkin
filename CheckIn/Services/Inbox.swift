@@ -269,20 +269,37 @@ final class Inbox {
         }
     }
 
-    /// Optimistic. Mutates `summary.meeting.responseStatus` immediately so
-    /// the UI swaps to the responded pill, and reverts on failure. After a
+    /// Optimistic. Mutates the matching meeting's `responseStatus`
+    /// immediately so the UI updates, and reverts on failure. After a
     /// successful RSVP, also marks any invite emails still sitting unread
-    /// in the inbox as read.
-    func respondToMeeting(_ response: MeetingResponse) async {
-        guard let meeting = summary?.meeting else { return }
+    /// in the inbox as read. Operates on either `summary.meeting` or the
+    /// matching entry in `summary.laterToday`.
+    func respondToMeeting(_ response: MeetingResponse, meetingId: String? = nil) async {
+        let id = meetingId ?? summary?.meeting?.id
+        guard let id, let meeting = meetingWithId(id) else { return }
         let previous = meeting.responseStatus
-        summary?.meeting = meeting.with(responseStatus: response)
+        setMeeting(meeting.with(responseStatus: response))
         do {
             try await graphClient.respondToMeeting(id: meeting.id, response: response)
             await markMatchingInviteEmailsRead(for: meeting)
         } catch {
             logger.error("respondToMeeting(\(response.rawValue)) failed: \(error.localizedDescription, privacy: .public)")
-            summary?.meeting = meeting.with(responseStatus: previous)
+            setMeeting(meeting.with(responseStatus: previous))
+        }
+    }
+
+    private func meetingWithId(_ id: String) -> Meeting? {
+        if let m = summary?.meeting, m.id == id { return m }
+        return summary?.laterToday.first(where: { $0.id == id })
+    }
+
+    private func setMeeting(_ meeting: Meeting) {
+        if summary?.meeting?.id == meeting.id {
+            summary?.meeting = meeting
+            return
+        }
+        if let idx = summary?.laterToday.firstIndex(where: { $0.id == meeting.id }) {
+            summary?.laterToday[idx] = meeting
         }
     }
 

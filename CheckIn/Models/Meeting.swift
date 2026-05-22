@@ -11,20 +11,26 @@ struct Meeting: Identifiable {
     let id: String
     let subject: String
     let organizer: String
+    /// Organizer's SMTP address from `event.organizer.emailAddress.address`.
+    /// Nil when Graph doesn't return one.
+    let organizerEmail: String?
     let start: Date
+    let end: Date
     /// From `onlineMeeting.joinUrl` when present. iOS routes the URL to
     /// Teams when installed. Nil when the event has no online meeting.
     let joinUrl: String?
     let responseStatus: MeetingResponse
     /// True when at least one other non-cancelled, non-declined event in
-    /// the next 24 hours overlaps this one's time range.
+    /// today's window overlaps this one's time range.
     let hasConflict: Bool
 
     func with(responseStatus: MeetingResponse) -> Meeting {
         Meeting(id: id,
                 subject: subject,
                 organizer: organizer,
+                organizerEmail: organizerEmail,
                 start: start,
+                end: end,
                 joinUrl: joinUrl,
                 responseStatus: responseStatus,
                 hasConflict: hasConflict)

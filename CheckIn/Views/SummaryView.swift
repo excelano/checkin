@@ -11,6 +11,7 @@ struct SummaryView: View {
     var authService: AuthService
 
     @State private var showSettings = false
+    @State private var showConflictSheet = false
 
     var body: some View {
         ZStack {
@@ -31,6 +32,9 @@ struct SummaryView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) {
             SettingsView(authService: authService)
+        }
+        .sheet(isPresented: $showConflictSheet) {
+            ConflictResolutionSheet(inbox: inbox)
         }
     }
 
@@ -104,6 +108,9 @@ struct SummaryView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 16, leading: 0, bottom: 6, trailing: 0))
+                        .contextMenu {
+                            meetingContextMenu(for: meeting)
+                        }
                 }
             }
             if !summary.laterToday.isEmpty {
@@ -113,6 +120,9 @@ struct SummaryView: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .contextMenu {
+                                meetingContextMenu(for: meeting)
+                            }
                     }
                 } header: {
                     sectionHeader(title: "Later today", count: summary.laterToday.count)
@@ -286,6 +296,59 @@ struct SummaryView: View {
             subtitle()
             Spacer()
             trailing()
+        }
+    }
+
+    @ViewBuilder
+    private func meetingContextMenu(for meeting: Meeting) -> some View {
+        if meeting.hasConflict {
+            Button {
+                showConflictSheet = true
+            } label: {
+                Label("Resolve conflict", systemImage: "exclamationmark.triangle")
+            }
+            Divider()
+        }
+        if meeting.responseStatus != .accepted {
+            Button {
+                Task { await inbox.respondToMeeting(.accepted, meetingId: meeting.id) }
+            } label: {
+                Label("Accept", systemImage: "checkmark")
+            }
+        }
+        if meeting.responseStatus != .tentativelyAccepted {
+            Button {
+                Task { await inbox.respondToMeeting(.tentativelyAccepted, meetingId: meeting.id) }
+            } label: {
+                Label("Tentative", systemImage: "questionmark")
+            }
+        }
+        if meeting.responseStatus != .declined {
+            Button(role: .destructive) {
+                Task { await inbox.respondToMeeting(.declined, meetingId: meeting.id) }
+            } label: {
+                Label("Decline", systemImage: "xmark")
+            }
+        }
+        Divider()
+        if let urlString = meeting.joinUrl {
+            Button {
+                UIPasteboard.general.string = urlString
+            } label: {
+                Label("Copy join link", systemImage: "doc.on.doc")
+            }
+        }
+        if let email = meeting.organizerEmail, !email.isEmpty {
+            Button {
+                UIPasteboard.general.string = email
+            } label: {
+                Label("Copy organizer email", systemImage: "doc.on.doc")
+            }
+        }
+        Button {
+            deepLink(DeepLinkService.outlookCalendar)
+        } label: {
+            Label("Open Outlook Calendar", systemImage: "calendar")
         }
     }
 
@@ -582,6 +645,121 @@ private struct MeetingCard: View {
         var parts = ["Next meeting", meeting.subject, untilTime(meeting.start)]
         if !meeting.organizer.isEmpty { parts.append("with \(meeting.organizer)") }
         return parts.joined(separator: ", ")
+    }
+}
+
+private struct ConflictResolutionSheet: View {
+    var inbox: Inbox
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 14) {
+                    Text("These meetings overlap. Adjust your response on one or both.")
+                        .font(.footnote)
+                        .foregroundStyle(Brand.textMuted)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                    if let meeting = inbox.summary?.meeting {
+                        ConflictMeetingRow(meeting: meeting) { response in
+                            Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
+                        }
+                        ForEach(conflicting(with: meeting)) { other in
+                            ConflictMeetingRow(meeting: other) { response in
+                                Task { await inbox.respondToMeeting(response, meetingId: other.id) }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(Brand.bg)
+            .navigationTitle("Overlapping meetings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(Brand.accent)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func conflicting(with meeting: Meeting) -> [Meeting] {
+        (inbox.summary?.laterToday ?? []).filter { other in
+            other.start < meeting.end && meeting.start < other.end
+        }
+    }
+}
+
+private struct ConflictMeetingRow: View {
+    let meeting: Meeting
+    let onRsvp: (MeetingResponse) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(meeting.subject)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+            Text("\(formatTimeOfDay(meeting.start)) \u{2013} \(formatTimeOfDay(meeting.end))")
+                .font(.subheadline)
+                .foregroundStyle(Brand.accent)
+            if !meeting.organizer.isEmpty {
+                Text("with \(meeting.organizer)")
+                    .font(.subheadline)
+                    .foregroundStyle(Brand.textMuted)
+                    .lineLimit(1)
+            }
+            if let label = respondedLabel {
+                Text(label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Brand.textMuted)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Brand.bg)
+                    .clipShape(Capsule())
+            }
+            HStack(spacing: 8) {
+                rsvpButton(.accepted, label: "Accept", icon: "checkmark")
+                rsvpButton(.tentativelyAccepted, label: "Maybe", icon: "questionmark")
+                rsvpButton(.declined, label: "Decline", icon: "xmark")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.bgDarker)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func rsvpButton(_ response: MeetingResponse, label: String, icon: String) -> some View {
+        Button {
+            onRsvp(response)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.subheadline.weight(.semibold))
+                Text(label).font(.subheadline.weight(.medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(meeting.responseStatus == response ? Brand.accent.opacity(0.25) : Brand.bg)
+            .foregroundStyle(.white)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var respondedLabel: String? {
+        switch meeting.responseStatus {
+        case .accepted: return "Accepted"
+        case .tentativelyAccepted: return "Tentative"
+        case .declined: return "Declined"
+        default: return nil
+        }
     }
 }
 

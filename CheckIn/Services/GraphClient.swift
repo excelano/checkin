@@ -73,7 +73,9 @@ final class GraphClient {
                 id: t.event.id,
                 subject: t.event.subject,
                 organizer: t.event.organizer.emailAddress.name,
+                organizerEmail: t.event.organizer.emailAddress.address,
                 start: t.start,
+                end: t.end,
                 joinUrl: t.event.onlineMeeting?.joinUrl,
                 responseStatus: response,
                 hasConflict: i == 0 ? firstHasConflict : false
