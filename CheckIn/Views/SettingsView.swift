@@ -4,27 +4,17 @@
 // Built with AI assistance (Claude, Anthropic)
 
 import SwiftUI
-import AVFoundation
 
-/// Settings sheet over the main screen. Sections for Voice,
-/// Listening Mode, and Advanced. Sign-out lives here per STATES.md.
-/// Voice Recognition Tuning is deferred.
+/// Settings sheet. Voice toggle is visual chrome (the recognizer isn't
+/// wired up yet). Auto-refresh and the bring-your-own-Azure overrides
+/// stay. Sign-out lives here.
 struct SettingsView: View {
     var authService: AuthService
     var stateMachine: StateMachine
 
     @Environment(\.dismiss) private var dismiss
 
-    // Voice
     @AppStorage(AppStorageKey.voiceEnabled) private var voiceEnabled: Bool = true
-    @AppStorage(AppStorageKey.voiceIdentifier) private var voiceIdentifier: String = ""
-    @AppStorage(AppStorageKey.speechRate) private var speechRate: Double = Double(AVSpeechUtteranceDefaultSpeechRate)
-    @AppStorage(AppStorageKey.verbosityFull) private var verbosityFull: Bool = false
-
-    // Listening Mode
-    @AppStorage(AppStorageKey.listeningMode) private var listeningMode: String = "tapToTalk"
-
-    // Summary refresh cadence (minutes; 0 = Never)
     @AppStorage(AppStorageKey.summaryRefreshMinutes) private var summaryRefreshMinutes: Int = AppStorageKey.summaryRefreshMinutesDefault
 
     // Advanced
@@ -38,9 +28,6 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 voiceSection
-                if voiceEnabled {
-                    listeningModeSection
-                }
                 refreshSection
                 advancedSection
                 signOutSection
@@ -74,100 +61,10 @@ struct SettingsView: View {
     private var voiceSection: some View {
         Section {
             Toggle("Voice commands", isOn: $voiceEnabled)
-                .onChange(of: voiceEnabled) { _, on in
-                    // Voice off forces tap-to-talk rest semantics so the
-                    // state machine doesn't auto-arm a hidden mic. Voice on
-                    // restores whatever listening-mode the user chose.
-                    let target: RestState = (on && listeningMode == "conversation") ? .listening : .idle
-                    stateMachine.preferredRestState = target
-                    // If the sheet is open (it is, by construction here),
-                    // patch its captured returnTo so dismissal lands on the
-                    // new rest state, not the one captured at sheet open.
-                    if case .active(.settingsDisplayed) = stateMachine.currentState {
-                        stateMachine.transition(to: .active(.settingsDisplayed(returnTo: target)))
-                    }
-                }
-            Picker("Voice", selection: $voiceIdentifier) {
-                Text("System default").tag("")
-                ForEach(localeVoices(), id: \.identifier) { voice in
-                    Text(voiceLabel(voice)).tag(voice.identifier)
-                }
-            }
-            .disabled(!voiceEnabled)
-            VStack(alignment: .leading) {
-                HStack {
-                    Text("Speech rate")
-                    Spacer()
-                    Text(rateLabel(speechRate))
-                        .foregroundStyle(Brand.textMuted)
-                        .monospacedDigit()
-                }
-                Slider(value: $speechRate,
-                       in: Double(AVSpeechUtteranceMinimumSpeechRate)
-                            ... Double(AVSpeechUtteranceMaximumSpeechRate)) {
-                    Text("Speech rate")
-                } minimumValueLabel: {
-                    Image(systemName: "tortoise.fill").foregroundStyle(Brand.textMuted)
-                } maximumValueLabel: {
-                    Image(systemName: "hare.fill").foregroundStyle(Brand.textMuted)
-                }
-            }
-            .disabled(!voiceEnabled)
-            Toggle("Full summaries", isOn: $verbosityFull)
-                .disabled(!voiceEnabled)
         } header: {
             Text("Voice")
         } footer: {
-            Text("Turn off voice commands to use the app with taps only. CheckIn defaults to terse summaries; turn on full summaries when you want every detail spoken.")
-        }
-    }
-
-    private func localeVoices() -> [AVSpeechSynthesisVoice] {
-        let prefix = Locale.current.language.languageCode?.identifier ?? "en"
-        return AVSpeechSynthesisVoice.speechVoices()
-            .filter { $0.language.hasPrefix(prefix) }
-            .sorted { $0.name < $1.name }
-    }
-
-    private func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
-        let quality: String
-        switch voice.quality {
-        case .premium: quality = " (Premium)"
-        case .enhanced: quality = " (Enhanced)"
-        default: quality = ""
-        }
-        return "\(voice.name) \u{2014} \(voice.language)\(quality)"
-    }
-
-    private func rateLabel(_ rate: Double) -> String {
-        let pct = Int((rate / Double(AVSpeechUtteranceDefaultSpeechRate)) * 100)
-        return "\(pct)%"
-    }
-
-    // MARK: - Listening Mode
-
-    private var listeningModeSection: some View {
-        Section {
-            Picker("Mode", selection: $listeningMode) {
-                Text("Tap to talk").tag("tapToTalk")
-                Text("Conversation").tag("conversation")
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-            .onChange(of: listeningMode) { _, new in
-                stateMachine.preferredRestState = (new == "conversation") ? .listening : .idle
-            }
-            .onAppear {
-                // Keep the live preferredRestState in sync with the stored
-                // setting on every sheet open. AppStorage carries the
-                // selection across launches; the state machine resets it
-                // on init, so it'd otherwise drift back to .idle.
-                stateMachine.preferredRestState = (listeningMode == "conversation") ? .listening : .idle
-            }
-        } header: {
-            Text("Listening Mode")
-        } footer: {
-            Text("Tap to talk: each turn requires a mic tap. Conversation: I keep the mic open between turns and finalize when you stop speaking.")
+            Text("Toggling voice on shows the microphone button. The recognizer isn't wired up yet — the button is a placeholder.")
         }
     }
 
@@ -186,7 +83,7 @@ struct SettingsView: View {
         } header: {
             Text("Auto-refresh")
         } footer: {
-            Text("How often CheckIn re-fetches your inbox, calendar, and chats in the background. Saying \"refresh\" forces a fetch regardless of this setting.")
+            Text("How often CheckIn re-fetches your inbox, calendar, and chats in the background.")
         }
     }
 
@@ -235,8 +132,8 @@ struct SettingsView: View {
     private func signOut() {
         authService.signOut()
         dismiss()
-        // Defer so the sheet dismissal animation can settle before
-        // ContentView swaps SummaryView for SignInView.
+        // Defer so the sheet dismissal animation settles before ContentView
+        // swaps SummaryView for SignInView.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
             stateMachine.transition(to: .signedOut)
