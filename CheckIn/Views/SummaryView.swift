@@ -5,6 +5,10 @@
 
 import SwiftUI
 import UIKit
+#if DEBUG
+import os
+private let log = Logger(subsystem: "com.excelano.checkin", category: "summary")
+#endif
 
 struct SummaryView: View {
     var inbox: Inbox
@@ -16,6 +20,9 @@ struct SummaryView: View {
     /// sheet via `.sheet(item:)` (rather than a Bool + separate id) means
     /// the sheet correctly targets whichever meeting was long-pressed.
     @State private var conflictTarget: Meeting?
+    /// The chat or email the user tapped to preview. Driving the sheet
+    /// via `.sheet(item:)` so the contents track whichever row was tapped.
+    @State private var previewTarget: MessagePreviewTarget?
 
     var body: some View {
         ZStack {
@@ -58,6 +65,9 @@ struct SummaryView: View {
         }
         .sheet(item: $conflictTarget) { target in
             ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
+        }
+        .sheet(item: $previewTarget) { target in
+            MessagePreviewSheet(inbox: inbox, target: target)
         }
     }
 
@@ -194,10 +204,31 @@ struct SummaryView: View {
             }
             Section {
                 ForEach(summary.chats) { chat in
-                    ChatRow(chat: chat, onTap: { openChat(chat) })
+                    ChatRow(chat: chat, onTap: {
+                        #if DEBUG
+                        log.info("chat tap chatId=\(chat.chatId ?? "nil", privacy: .public)")
+                        #endif
+                        previewTarget = .chat(chat)
+                    })
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .contextMenu {
+                            if chat.chatId != nil {
+                                Button {
+                                    previewTarget = .chat(chat, openComposer: true)
+                                } label: {
+                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                }
+                            }
+                            if chat.webUrl != nil {
+                                Button {
+                                    openChat(chat)
+                                } label: {
+                                    Label("Open in Teams", systemImage: "arrow.up.forward.app")
+                                }
+                            }
+                        }
                 }
             } header: {
                 sectionHeader(title: "Chats", count: summary.chats.count) {
@@ -235,7 +266,12 @@ struct SummaryView: View {
                             ? 0
                             : senderCounts[email.fromAddress, default: 0]
                         let subjectCount = subjectCounts[email.subject.normalizedSubjectKey, default: 0]
-                        EmailRow(email: email, onTap: { replyTo(email) })
+                        EmailRow(email: email, onTap: {
+                            #if DEBUG
+                            log.info("email tap id=\(email.id, privacy: .public)")
+                            #endif
+                            previewTarget = .email(email)
+                        })
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
@@ -257,6 +293,12 @@ struct SummaryView: View {
                                 .tint(.orange)
                             }
                             .contextMenu {
+                                Button {
+                                    previewTarget = .email(email, openComposer: true)
+                                } label: {
+                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                }
+                                Divider()
                                 Button {
                                     Task { await inbox.markRead(emailId: email.id) }
                                 } label: {
@@ -434,11 +476,6 @@ struct SummaryView: View {
                 Label("Copy organizer email", systemImage: "doc.on.doc")
             }
         }
-        Button {
-            deepLink(DeepLinkService.outlookCalendar)
-        } label: {
-            Label("Open Outlook Calendar", systemImage: "calendar")
-        }
         // Delete is hidden when Decline is already available — they
         // functionally do the same thing from the user's perspective
         // (get the meeting off the day's view). Decline is shown
@@ -454,27 +491,13 @@ struct SummaryView: View {
         }
     }
 
+    /// Open the Teams join URL when there is one. Calendar-only events
+    /// without a join URL no longer hand off elsewhere — tap is a no-op
+    /// and the meeting context menu carries the remaining actions.
     private func joinOrCalendar(_ meeting: Meeting) {
-        if let urlString = meeting.joinUrl,
-           let url = DeepLinkService.passthrough(urlString) {
-            UIApplication.shared.open(url) { ok in
-                if !ok { deepLink(DeepLinkService.outlookCalendar) }
-            }
-            return
-        }
-        deepLink(DeepLinkService.outlookCalendar)
-    }
-
-    private func replyTo(_ email: Email) {
-        if !email.fromAddress.isEmpty,
-           let url = DeepLinkService.outlookReply(to: email.fromAddress,
-                                                  subject: email.subject) {
-            UIApplication.shared.open(url) { ok in
-                if !ok { deepLink(DeepLinkService.outlookInbox) }
-            }
-            return
-        }
-        deepLink(DeepLinkService.outlookInbox)
+        guard let urlString = meeting.joinUrl,
+              let url = DeepLinkService.passthrough(urlString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func openChat(_ chat: ChatMessage) {

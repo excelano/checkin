@@ -89,7 +89,34 @@ struct BodyContentResponse: Decodable {
     let content: String
 }
 
+/// Used by `fetchEmailBody` to pull just the body text. Combined with
+/// the `Prefer: outlook.body-content-type="text"` request header so
+/// Graph returns plain text instead of HTML.
+struct EmailBodyResponse: Decodable {
+    let body: BodyContentResponse
+}
+
+/// POST body for `/me/messages/{id}/replyAll` — Graph wraps the user's
+/// short message in `comment` and stitches it onto the original
+/// conversation with proper `In-Reply-To` / `References` threading.
+struct ReplyCommentBody: Encodable {
+    let comment: String
+}
+
+/// POST body for `/me/chats/{chatId}/messages`. Graph expects `body`
+/// as a content envelope identical in shape to the lastMessagePreview
+/// body we read elsewhere.
+struct ChatMessageSendBody: Encodable {
+    let body: ChatMessageSendContent
+}
+
+struct ChatMessageSendContent: Encodable {
+    let contentType: String
+    let content: String
+}
+
 struct ChatResponse: Decodable {
+    let id: String
     let topic: String?
     let webUrl: String?
     let lastMessagePreview: ChatPreviewResponse?

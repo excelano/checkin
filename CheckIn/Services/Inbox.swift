@@ -558,6 +558,75 @@ final class Inbox {
         }
     }
 
+    /// Undo for the auto-mark-as-read that fires when the preview sheet
+    /// opens. Re-inserts the email into the summary in received-time
+    /// order so the user sees it back in CheckIn without having to
+    /// pull-to-refresh. Failure is logged but silent.
+    func markUnread(_ email: Email) async {
+        do {
+            try await graphClient.markEmailUnread(id: email.id)
+            if summary?.emails.contains(where: { $0.id == email.id }) == false {
+                let insertAt = summary?.emails.firstIndex(where: { $0.received < email.received })
+                    ?? summary?.emails.count ?? 0
+                summary?.emails.insert(email, at: insertAt)
+            }
+            summary?.totalUnreadEmails += 1
+            await updateAppBadge()
+        } catch {
+            logger.error("markUnread failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Used by the preview sheet to render the full email body.
+    /// Returns plain text — Graph delivers it that way because of the
+    /// `Prefer: outlook.body-content-type="text"` header in the client.
+    func fetchEmailBody(emailId: String) async throws -> String {
+        try await graphClient.fetchEmailBody(id: emailId)
+    }
+
+    /// Send a reply-all to an email. After success the email is
+    /// optimistically dropped from the visible summary (replying
+    /// implies you've handled it) — same shape as markRead's path.
+    func replyAllToEmail(emailId: String, comment: String) async throws {
+        #if DEBUG
+        logger.info("replyAllToEmail begin id=\(emailId, privacy: .public)")
+        #endif
+        try await graphClient.replyAllToEmail(id: emailId, comment: comment)
+        #if DEBUG
+        logger.info("replyAllToEmail graph ok id=\(emailId, privacy: .public)")
+        #endif
+        if let idx = summary?.emails.firstIndex(where: { $0.id == emailId }) {
+            #if DEBUG
+            logger.info("replyAllToEmail removing row at idx=\(idx, privacy: .public)")
+            #endif
+            summary?.emails.remove(at: idx)
+            summary?.totalUnreadEmails = max(0, (summary?.totalUnreadEmails ?? 1) - 1)
+            await updateAppBadge()
+        } else {
+            #if DEBUG
+            logger.info("replyAllToEmail row already absent (auto-mark-read on preview)")
+            #endif
+        }
+        // Mark the original as read on the server too — replying counts
+        // as having handled the message. Fire-and-forget; if it fails
+        // the next refresh will reconcile.
+        Task { try? await graphClient.markEmailRead(id: emailId) }
+        #if DEBUG
+        logger.info("replyAllToEmail done id=\(emailId, privacy: .public)")
+        #endif
+    }
+
+    /// Send a reply into an existing Teams chat thread. After success
+    /// the chat is dropped from the summary's pending list — same shape
+    /// as the email path.
+    func sendChatMessage(chatId: String, content: String) async throws {
+        try await graphClient.sendChatMessage(chatId: chatId, content: content)
+        if let idx = summary?.chats.firstIndex(where: { $0.chatId == chatId }) {
+            summary?.chats.remove(at: idx)
+            await updateAppBadge()
+        }
+    }
+
     /// Optimistic. Mutates the matching meeting's `responseStatus`
     /// immediately so the UI updates, and reverts on failure. After a
     /// successful RSVP, also marks any invite emails still sitting unread

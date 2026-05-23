@@ -50,7 +50,7 @@ struct MeetingCard: View {
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityLabel)
-            .accessibilityHint("Open in Outlook calendar")
+            .accessibilityHint("Join meeting in Teams")
 
             if meeting.hasConflict {
                 Button(action: onConflictTap) {

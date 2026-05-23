@@ -31,7 +31,7 @@ struct LaterMeetingRow: View {
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(formatTimeOfDay(meeting.start)): \(meeting.subject)")
-            .accessibilityHint("Open in Teams or Outlook calendar")
+            .accessibilityHint("Join meeting in Teams")
 
             if meeting.hasConflict {
                 Button(action: onConflictTap) {

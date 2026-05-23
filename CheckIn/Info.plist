@@ -37,7 +37,6 @@
 	<array>
 		<string>msauthv2</string>
 		<string>msauthv3</string>
-		<string>ms-outlook</string>
 		<string>msteams</string>
 	</array>
 	<key>UIBackgroundModes</key>

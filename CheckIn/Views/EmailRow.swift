@@ -45,7 +45,7 @@ struct EmailRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("Reply in Outlook")
+        .accessibilityHint("Preview message")
     }
 
     private var accessibilityLabel: String {

@@ -47,7 +47,7 @@ struct ChatRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Teams chat from \(chat.from)")
-        .accessibilityHint("Open in Teams")
+        .accessibilityHint("Preview message")
     }
 
     /// Empty for 1:1 chats. Full "with A, B, C" when the joined names fit

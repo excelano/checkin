@@ -6,10 +6,10 @@
 import UIKit
 import UserNotifications
 
-/// Routes meeting-notification taps to the same place tapping a
-/// meeting card would: the Teams join URL if there is one, otherwise
-/// Outlook's calendar. Also lets alerts surface as banners while the
-/// app is foregrounded.
+/// Routes meeting-notification taps to the Teams join URL when there
+/// is one. Calendar-only meetings (no join URL) just bring CheckIn to
+/// the foreground — there's no per-meeting deep-link to hand off to.
+/// Also lets alerts surface as banners while the app is foregrounded.
 final class NotificationCenterDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationCenterDelegate()
 
@@ -31,15 +31,9 @@ final class NotificationCenterDelegate: NSObject, UNUserNotificationCenterDelega
 
     @MainActor
     private func openMeeting(joinUrlString: String?) async {
-        if let urlString = joinUrlString,
-           let url = DeepLinkService.passthrough(urlString),
-           UIApplication.shared.canOpenURL(url) {
-            let ok = await UIApplication.shared.open(url)
-            if ok { return }
-        }
-        if let url = DeepLinkService.outlookCalendar,
-           UIApplication.shared.canOpenURL(url) {
-            _ = await UIApplication.shared.open(url)
-        }
+        guard let urlString = joinUrlString,
+              let url = DeepLinkService.passthrough(urlString),
+              UIApplication.shared.canOpenURL(url) else { return }
+        _ = await UIApplication.shared.open(url)
     }
 }

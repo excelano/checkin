@@ -9,7 +9,9 @@ struct Email: Identifiable {
     let id: String
     let subject: String
     let from: String
-    /// SMTP address; required for the outlookReply deep-link.
+    /// SMTP address of the sender. Surfaced for per-sender bulk actions
+    /// (Mark/Delete all from this sender) and for the recipient line in
+    /// the reply composer.
     let fromAddress: String
     /// Graph's `bodyPreview` — plain text, already HTML-stripped and
     /// truncated to ~255 chars on the server.

@@ -7,6 +7,11 @@ import Foundation
 
 struct ChatMessage: Identifiable {
     let id = UUID()
+    /// Graph chat id (the thread, not the individual message). Used to
+    /// post a reply via `POST /me/chats/{chatId}/messages`. Optional
+    /// because some legacy chats don't populate it — reply is disabled
+    /// for those.
+    let chatId: String?
     let topic: String
     let from: String
     let preview: String

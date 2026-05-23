@@ -281,6 +281,47 @@ final class GraphClient {
         try await patch("/me/messages/\(id)", body: MarkReadBody(isRead: true))
     }
 
+    /// Mail.ReadWrite required. Used to undo an accidental Mark Read or
+    /// to drive the explicit Mark Unread button on the preview sheet.
+    func markEmailUnread(id: String) async throws {
+        try await patch("/me/messages/\(id)", body: MarkReadBody(isRead: false))
+    }
+
+    /// Fetch the full plain-text body of a message for the preview sheet.
+    /// `Prefer: outlook.body-content-type="text"` tells Graph to return
+    /// text in `body.content` rather than HTML, which avoids us having
+    /// to render HTML for the preview. Mail.Read or Mail.ReadWrite
+    /// covers this.
+    func fetchEmailBody(id: String) async throws -> String {
+        let data: EmailBodyResponse = try await get(
+            "/me/messages/\(id)",
+            query: ["$select": "body"],
+            headers: ["Prefer": "outlook.body-content-type=\"text\""]
+        )
+        return data.body.content
+    }
+
+    /// Send a reply-all to a message. Graph stitches the user's comment
+    /// onto the original conversation with proper `In-Reply-To` /
+    /// `References` headers and includes the quoted history. For
+    /// single-recipient messages this degrades gracefully to reply-to-
+    /// sender. Mail.Send required.
+    func replyAllToEmail(id: String, comment: String) async throws {
+        try await post("/me/messages/\(id)/replyAll", body: ReplyCommentBody(comment: comment))
+    }
+
+    /// Post a new message into an existing chat thread. Chat.ReadWrite
+    /// covers this — `ChatMessage.Send` is a more granular scope but
+    /// the broader one we already request is a superset.
+    func sendChatMessage(chatId: String, content: String) async throws {
+        try await post(
+            "/me/chats/\(chatId)/messages",
+            body: ChatMessageSendBody(
+                body: ChatMessageSendContent(contentType: "text", content: content)
+            )
+        )
+    }
+
     /// Mail.ReadWrite required. Idempotent.
     func flagEmail(id: String) async throws {
         try await patch("/me/messages/\(id)",
@@ -374,7 +415,7 @@ final class GraphClient {
     /// Fetch pending chats: chats where someone else sent the last message within 24 hours.
     func pendingChats() async throws -> [ChatMessage] {
         let data: GraphList<ChatResponse> = try await get("/me/chats", query: [
-            "$select": "topic,webUrl,lastMessagePreview",
+            "$select": "id,topic,webUrl,lastMessagePreview",
             "$expand": "lastMessagePreview,members",
             "$top": "50"
         ])
@@ -399,6 +440,7 @@ final class GraphClient {
             }
 
             messages.append(ChatMessage(
+                chatId: chat.id,
                 topic: chat.topic ?? "",
                 from: from.displayName,
                 preview: stripHTML(preview.body.content),
