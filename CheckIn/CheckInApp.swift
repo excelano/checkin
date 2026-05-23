@@ -6,6 +6,7 @@
 import BackgroundTasks
 import MSAL
 import SwiftUI
+import UIKit
 import UserNotifications
 
 @main
@@ -32,9 +33,19 @@ struct CheckInApp: App {
         WindowGroup {
             ContentView(authService: authService, inbox: inbox)
                 .onOpenURL { url in
-                    MSALPublicClientApplication.handleMSALResponse(
-                        url, sourceApplication: nil
-                    )
+                    // MSAL sign-in / sign-out completion callbacks come
+                    // through with our redirect scheme prefix.
+                    if url.scheme?.hasPrefix("msauth") == true {
+                        MSALPublicClientApplication.handleMSALResponse(
+                            url, sourceApplication: nil
+                        )
+                        return
+                    }
+                    // Widget Links always route through the host app —
+                    // forward any non-MSAL URLs (Teams join links from
+                    // the widget's Join pill, etc.) to iOS so the
+                    // appropriate target app receives them.
+                    UIApplication.shared.open(url)
                 }
         }
         .backgroundTask(.appRefresh(Constants.backgroundRefreshIdentifier)) {

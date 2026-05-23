@@ -5,6 +5,7 @@
 
 import Foundation
 import UserNotifications
+import WidgetKit
 import os
 
 @MainActor @Observable
@@ -149,6 +150,31 @@ final class Inbox {
         lastRefreshFailed = anyFailed || meetingsResult.failed || emailsResult.failed || chatsFailed
         await updateAppBadge()
         await rescheduleMeetingNotificationsIfEnabled()
+        writeWidgetSnapshot()
+    }
+
+    /// Serialize the current summary into the App Group container the
+    /// widget reads from, and tell the widget to reload. Widgets can't
+    /// authenticate or call Graph themselves, so this is the only way
+    /// they get fresh data.
+    private func writeWidgetSnapshot() {
+        guard let summary else { return }
+        let snapshot = CheckInSnapshot(
+            updatedAt: Date(),
+            nextMeetingSubject: summary.meeting?.subject,
+            nextMeetingStart: summary.meeting?.start,
+            nextMeetingOrganizer: summary.meeting?.organizer,
+            nextMeetingJoinUrl: summary.meeting?.joinUrl,
+            unreadEmailCount: summary.totalUnreadEmails,
+            chatCount: summary.chats.count
+        )
+        guard let data = try? JSONEncoder().encode(snapshot),
+              let defaults = UserDefaults(suiteName: CheckInSnapshot.appGroupIdentifier) else {
+            logger.error("writeWidgetSnapshot: couldn't encode or open App Group defaults")
+            return
+        }
+        defaults.set(data, forKey: CheckInSnapshot.userDefaultsKey)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// sessionId for `/me/presence/setPresence`. Microsoft constrains
