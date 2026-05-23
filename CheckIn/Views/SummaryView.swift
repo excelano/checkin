@@ -31,7 +31,7 @@ struct SummaryView: View {
                 Spacer()
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            .ignoresSafeArea(.container, edges: .bottom)
 
             VStack {
                 Spacer()
