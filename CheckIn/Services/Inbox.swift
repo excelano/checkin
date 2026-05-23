@@ -289,8 +289,12 @@ final class Inbox {
     /// Set the user-preferred Teams presence, or clear it back to
     /// auto-detection when passed `.unknown`. Optimistic UI; reverts on
     /// failure. After a Reset, re-fetches the auto-detected state.
-    /// Also publishes a short-lived `presenceFeedback` string so the
-    /// user gets visible confirmation in the UI.
+    ///
+    /// If the user is currently Out of Office, also turns OOO off —
+    /// picking a regular presence state is an explicit signal that the
+    /// user is back, and Reset-to-auto means "drop all my overrides".
+    /// The OOO toggle and Teams-presence picker live in the same menu
+    /// so the mutual exclusion needs to happen here.
     func setPresence(_ presence: TeamsPresence) async {
         let previous = currentPresence
         currentPresence = presence
@@ -315,6 +319,9 @@ final class Inbox {
         } catch {
             logger.error("setPresence(\(presence.displayName, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
             currentPresence = previous
+        }
+        if isOutOfOffice {
+            await setOutOfOffice(false)
         }
     }
 
@@ -401,6 +408,37 @@ final class Inbox {
         guard !address.isEmpty else { return }
         let candidates = (summary?.emails ?? []).filter { $0.fromAddress == address }
         await runBulkMarkRead(emails: candidates)
+    }
+
+    /// Flip every read email received today back to unread, so a day's
+    /// mail that got cleared elsewhere (Outlook web, another phone)
+    /// shows up in CheckIn again. Re-fetches the summary because the
+    /// newly-unread emails are not in our visible list.
+    func markTodayUnread() async {
+        do {
+            let ids = try await graphClient.idsOfReadEmailsReceivedToday()
+            guard !ids.isEmpty else { return }
+            _ = try await graphClient.batchMarkUnread(ids: ids)
+            let result = await fetchEmails()
+            summary?.emails = result.emails
+            summary?.totalUnreadEmails = result.totalCount
+            if result.failed { lastRefreshFailed = true }
+            await updateAppBadge()
+            setPendingUndo(UndoableBulkAction(
+                summary: "Marked \(ids.count) today unread",
+                undo: { [weak self] in
+                    _ = try? await self?.graphClient.batchMarkRead(ids: ids)
+                    let r = await self?.fetchEmails()
+                    if let r = r {
+                        self?.summary?.emails = r.emails
+                        self?.summary?.totalUnreadEmails = r.totalCount
+                    }
+                    await self?.updateAppBadge()
+                }
+            ))
+        } catch {
+            logger.error("markTodayUnread failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Mark every visible email whose normalized subject matches. Strips

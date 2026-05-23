@@ -6,64 +6,54 @@
 import SwiftUI
 
 /// Top-bar pill showing the user's current Teams presence and exposing
-/// the five settable states + a Reset to clear the user-preferred
-/// presence (Teams resumes auto-detection from calendar/idle/etc).
+/// the settable states plus Out of Office and Reset to auto.
+///
+/// OOO lives in the same menu as the Teams presences (rather than in
+/// Settings) because conceptually it's another "I'm not available"
+/// state. It's a peer of Offline / Away — same menu position, same
+/// selection semantics. Under the hood it's a different Graph endpoint
+/// (`mailboxSettings/automaticRepliesSetting`), which the Inbox
+/// reconciles: picking any Teams presence (or Reset) also disables
+/// OOO so the two never claim to be active at once.
 struct PresenceMenu: View {
     let presence: TeamsPresence
     let isOutOfOffice: Bool
-    let customStatusMessage: String
     let onSelect: (TeamsPresence) -> Void
-    let onOpenSettings: () -> Void
-    let onEditCustomMessage: () -> Void
+    let onSelectOutOfOffice: () -> Void
 
     var body: some View {
-        if isOutOfOffice {
-            Button(action: onOpenSettings) {
-                ZStack {
-                    Text("0").opacity(0)
-                    outOfOfficeGlyph
-                }
-                .font(.subheadline.weight(.semibold))
-            }
-            .accessibilityLabel("Out of office")
-            .accessibilityHint("Open settings to manage")
-        } else {
-            Menu {
-                menuButton(for: .available)
-                menuButton(for: .busy)
-                menuButton(for: .doNotDisturb)
-                menuButton(for: .beRightBack)
-                menuButton(for: .away)
-                menuButton(for: .offline)
-                Divider()
-                Button(action: onEditCustomMessage) {
-                    Label {
-                        Text(customStatusMessage.isEmpty ? "Custom message…" : customStatusMessage)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    } icon: {
-                        Image(systemName: "text.bubble")
-                    }
-                }
-                Divider()
-                Button {
-                    onSelect(.unknown)
-                } label: {
-                    Label("Reset to auto", systemImage: "arrow.counterclockwise")
-                }
+        Menu {
+            menuButton(for: .available)
+            menuButton(for: .busy)
+            menuButton(for: .doNotDisturb)
+            menuButton(for: .beRightBack)
+            menuButton(for: .away)
+            menuButton(for: .offline)
+            outOfOfficeMenuButton
+            Divider()
+            Button {
+                onSelect(.unknown)
             } label: {
-                ZStack {
-                    // Invisible text reserves the count-pill's vertical
-                    // footprint, so the chats section header doesn't grow
-                    // taller than the email section header.
-                    Text("0").opacity(0)
+                Label("Reset to auto", systemImage: "arrow.counterclockwise")
+            }
+        } label: {
+            ZStack {
+                // Invisible text reserves the count-pill's vertical
+                // footprint, so the chats section header doesn't grow
+                // taller than the email section header.
+                Text("0").opacity(0)
+                if isOutOfOffice {
+                    outOfOfficeGlyph
+                } else {
                     presenceGlyph(presence)
                 }
-                .font(.subheadline.weight(.semibold))
             }
-            .accessibilityLabel("Teams presence: \(presence.displayName)")
-            .accessibilityHint("Change your presence")
+            .font(.subheadline.weight(.semibold))
         }
+        .accessibilityLabel(isOutOfOffice
+            ? "Out of office"
+            : "Teams presence: \(presence.displayName)")
+        .accessibilityHint("Change your presence")
     }
 
     private var outOfOfficeGlyph: some View {
@@ -73,11 +63,24 @@ struct PresenceMenu: View {
     }
 
     private func menuButton(for state: TeamsPresence) -> some View {
-        Button { onSelect(state) } label: {
+        // Only the Teams presence whose state matches the current value
+        // gets the checkmark, and only when OOO isn't the active state.
+        let isSelected = !isOutOfOffice && presence == state
+        return Button { onSelect(state) } label: {
             Label {
-                Text(state.displayName + (presence == state ? "  ✓" : ""))
+                Text(state.displayName + (isSelected ? "  ✓" : ""))
             } icon: {
                 presenceGlyph(state)
+            }
+        }
+    }
+
+    private var outOfOfficeMenuButton: some View {
+        Button(action: onSelectOutOfOffice) {
+            Label {
+                Text("Out of office" + (isOutOfOffice ? "  ✓" : ""))
+            } icon: {
+                outOfOfficeGlyph
             }
         }
     }

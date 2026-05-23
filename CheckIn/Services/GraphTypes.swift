@@ -89,6 +89,12 @@ struct BodyContentResponse: Decodable {
     let content: String
 }
 
+/// Used when we only need the message id from a list query (e.g.,
+/// fetching today's read messages so we can flip them back to unread).
+struct EmailIdResponse: Decodable {
+    let id: String
+}
+
 /// Used by `fetchEmailBody` to pull just the body text. Combined with
 /// the `Prefer: outlook.body-content-type="text"` request header so
 /// Graph returns plain text instead of HTML.

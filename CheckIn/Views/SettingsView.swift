@@ -24,9 +24,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if authService.isAuthenticated {
-                    outOfOfficeSection
-                }
                 notificationsSection
                 advancedSection
                 if authService.isAuthenticated {
@@ -58,23 +55,6 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
     }
 
-    private var outOfOfficeSection: some View {
-        Section {
-            Toggle("Out of office", isOn: Binding(
-                get: { inbox.isOutOfOffice },
-                set: { wantOn in
-                    Task { await inbox.setOutOfOffice(wantOn) }
-                }
-            ))
-            .tint(Brand.accent)
-            .listRowBackground(Brand.bgDarker)
-        } header: {
-            Text("Out of office")
-        } footer: {
-            Text("Turns Microsoft 365 auto-replies on or off. Edit the auto-reply message in Outlook on the web.")
-        }
-    }
-
     private var notificationsSection: some View {
         Section {
             Toggle("Meeting reminders", isOn: $meetingNotificationsEnabled)
@@ -93,7 +73,7 @@ struct SettingsView: View {
         } header: {
             Text("Notifications")
         } footer: {
-            Text("Get a notification 1 minute before each of today's meetings. Tap the notification to open the meeting in Teams.")
+            Text("Get a notification 1 minute before each meeting. Tap the notification to open the meeting in Teams.")
         }
     }
 
@@ -123,7 +103,7 @@ struct SettingsView: View {
         } header: {
             Text("Custom Azure registration")
         } footer: {
-            Text("Leave both blank to use Excelano's published registration. Leave the tenant ID blank to sign in against any tenant. Your registration must accept msauth.com.excelano.checkin://auth as a redirect URI.")
+            Text("Leave both blank to use Excelano's published registration. Leave the Directory (tenant) ID blank to sign in against any tenant. Your registration must accept msauth.com.excelano.checkin://auth as a redirect URI.")
         }
     }
 

@@ -245,7 +245,7 @@ final class GraphClient {
     /// the base collection type.
     func unreadEmails(top: Int = 20) async throws -> (emails: [Email], totalCount: Int) {
         let data: GraphList<EmailResponse> = try await get(
-            "/me/messages",
+            "/me/mailFolders/inbox/messages",
             query: [
                 "$filter": "isRead eq false",
                 "$orderby": "receivedDateTime desc",
@@ -279,6 +279,34 @@ final class GraphClient {
     /// Mail.ReadWrite required. Idempotent.
     func markEmailRead(id: String) async throws {
         try await patch("/me/messages/\(id)", body: MarkReadBody(isRead: true))
+    }
+
+    /// IDs of Inbox messages already marked read whose `receivedDateTime`
+    /// falls within today (local midnight → tomorrow's local midnight).
+    /// Used by the "Mark today's emails unread" bulk action so the user
+    /// can re-surface a day's worth of mail that got cleared elsewhere
+    /// (Outlook on the web, another mobile client). Scoped to the Inbox
+    /// folder so Sent Items, Drafts, and Archive are excluded. Caps at
+    /// 200 — that covers any normal day with margin and keeps the
+    /// response small.
+    func idsOfReadEmailsReceivedToday() async throws -> [String] {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let start = formatter.string(from: todayStart)
+        let end = formatter.string(from: tomorrowStart)
+
+        let data: GraphList<EmailIdResponse> = try await get(
+            "/me/mailFolders/inbox/messages",
+            query: [
+                "$filter": "isRead eq true and receivedDateTime ge \(start) and receivedDateTime lt \(end)",
+                "$top": "200",
+                "$select": "id"
+            ]
+        )
+        return data.value.map(\.id)
     }
 
     /// Mail.ReadWrite required. Used to undo an accidental Mark Read or

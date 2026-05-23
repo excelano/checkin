@@ -19,6 +19,7 @@ struct BulkActionsMenu: View {
     let onUnflagAll: () -> Void
     let onShowAll: () -> Void
     let onShowCapped: () -> Void
+    let onMarkTodayUnread: () -> Void
 
     var body: some View {
         let unflaggedCount = emails.filter { !$0.isFlagged }.count
@@ -28,10 +29,13 @@ struct BulkActionsMenu: View {
         let mailingListCount = emails.filter { $0.isMailingList }.count
         let externalCount = externalSenderCount(in: emails, userMailDomain: userMailDomain)
         let canExpand = !isShowingAll && totalUnread > emails.count
+        let hasItemsAbove = !emails.isEmpty || canExpand || isShowingAll
 
         Menu {
-            Button(action: onMarkAllRead) {
-                Label("Mark \(emails.count) read", systemImage: "envelope.open")
+            if !emails.isEmpty {
+                Button(action: onMarkAllRead) {
+                    Label("Mark \(emails.count) read", systemImage: "envelope.open")
+                }
             }
             if otherCount > 0 {
                 Button(action: onMarkOtherRead) {
@@ -73,6 +77,10 @@ struct BulkActionsMenu: View {
                 Button(action: onShowCapped) {
                     Label("Show top 20", systemImage: "list.bullet")
                 }
+            }
+            if hasItemsAbove { Divider() }
+            Button(action: onMarkTodayUnread) {
+                Label("Mark today's emails unread", systemImage: "envelope.badge")
             }
         } label: {
             ZStack {

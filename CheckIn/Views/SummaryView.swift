@@ -233,28 +233,30 @@ struct SummaryView: View {
             } header: {
                 sectionHeader(title: "Chats", count: summary.chats.count) {
                     HStack(spacing: 8) {
-                        if !inbox.customStatusMessage.isEmpty {
-                            Button {
-                                showCustomMessageSheet = true
-                            } label: {
-                                Text(inbox.customStatusMessage)
-                                    .font(.caption.italic())
-                                    .foregroundStyle(Brand.textMuted)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            .accessibilityLabel("Custom status message")
-                            .accessibilityHint("Tap to edit")
+                        Button {
+                            showCustomMessageSheet = true
+                        } label: {
+                            Text(inbox.customStatusMessage.isEmpty
+                                ? "Set message…"
+                                : inbox.customStatusMessage)
+                                .font(.caption.italic())
+                                .foregroundStyle(Brand.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
+                        .accessibilityLabel(inbox.customStatusMessage.isEmpty
+                            ? "Set custom status message"
+                            : "Custom status message: \(inbox.customStatusMessage)")
+                        .accessibilityHint("Tap to edit")
                         PresenceMenu(
                             presence: inbox.currentPresence,
                             isOutOfOffice: inbox.isOutOfOffice,
-                            customStatusMessage: inbox.customStatusMessage,
                             onSelect: { selection in
                                 Task { await inbox.setPresence(selection) }
                             },
-                            onOpenSettings: { showSettings = true },
-                            onEditCustomMessage: { showCustomMessageSheet = true }
+                            onSelectOutOfOffice: {
+                                Task { await inbox.setOutOfOffice(!inbox.isOutOfOffice) }
+                            }
                         )
                     }
                 }
@@ -370,7 +372,8 @@ struct SummaryView: View {
                                 onFlagAll: { Task { await inbox.setFlaggedAllVisible(true) } },
                                 onUnflagAll: { Task { await inbox.setFlaggedAllVisible(false) } },
                                 onShowAll: { Task { await inbox.setShowingAllEmails(true) } },
-                                onShowCapped: { Task { await inbox.setShowingAllEmails(false) } }
+                                onShowCapped: { Task { await inbox.setShowingAllEmails(false) } },
+                                onMarkTodayUnread: { Task { await inbox.markTodayUnread() } }
                             )
                         }
                     )

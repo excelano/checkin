@@ -32,7 +32,7 @@ struct EmailRow: View {
                     Text(email.subject).font(.body).foregroundStyle(.white).lineLimit(2)
                     if !email.preview.isEmpty {
                         Text(email.preview)
-                            .font(.footnote)
+                            .font(.body)
                             .foregroundStyle(Brand.textMuted)
                             .lineLimit(4)
                     }

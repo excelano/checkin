@@ -90,7 +90,8 @@ struct MessagePreviewSheet: View {
             Divider().overlay(Brand.bgDarker)
             ScrollView {
                 bodyText
-                    .padding(.horizontal, 20)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 4)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -244,6 +245,27 @@ struct MessagePreviewSheet: View {
         guard case .email(let email) = target.kind, emailBody == nil else { return }
         do {
             let raw = try await inbox.fetchEmailBody(emailId: email.id)
+            #if DEBUG
+            // Diagnostic hook for the "weird wrap / mystery character"
+            // class of problem. `print()` flows through devicectl's
+            // `--console` capture; os.Logger does not. Filter the
+            // launched stream with `grep "CHECKIN-DEBUG"`. Kept in
+            // place rather than re-added per-investigation because
+            // wiring it from scratch under time pressure is annoying.
+            // Also dumps email.preview (Graph's bodyPreview, post-
+            // cleanEmailPreview) so the summary-row and preview-sheet
+            // sources can be compared in one capture.
+            let visibleRaw = raw
+                .replacingOccurrences(of: "\r\n", with: "[CRLF]")
+                .replacingOccurrences(of: "\n", with: "[LF]")
+                .replacingOccurrences(of: "\r", with: "[CR]")
+            let visiblePreview = email.preview
+                .replacingOccurrences(of: "\r\n", with: "[CRLF]")
+                .replacingOccurrences(of: "\n", with: "[LF]")
+                .replacingOccurrences(of: "\r", with: "[CR]")
+            print("CHECKIN-DEBUG email.preview (len=\(email.preview.count)): \(visiblePreview)")
+            print("CHECKIN-DEBUG email body raw (len=\(raw.count)): \(visibleRaw)")
+            #endif
             emailBody = cleanEmailPreview(raw)
         } catch {
             bodyFetchFailed = true
