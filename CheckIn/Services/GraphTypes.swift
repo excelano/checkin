@@ -194,6 +194,22 @@ struct SetPresenceBody: Encodable {
     let expirationDuration: String  // ISO 8601 duration, e.g., "PT4H"
 }
 
+/// Body for `/me/presence/setPresence` — the app-session endpoint that
+/// registers CheckIn as an active presence source. Distinct from the
+/// user-preferred body above: this one requires a `sessionId` and keeps
+/// Graph from treating the user as having "no session" (which would
+/// otherwise stop the preferred from being honored).
+struct SetSessionPresenceBody: Encodable {
+    let sessionId: String
+    let availability: String
+    let activity: String
+    let expirationDuration: String  // ISO 8601, max "PT1H"
+}
+
+struct ClearSessionPresenceBody: Encodable {
+    let sessionId: String
+}
+
 /// Subset of `/me/mailboxSettings/automaticRepliesSetting` we care about
 /// for the OOO toggle. `status` drives the indicator and the toggle;
 /// the messages are kept so we can preserve a user's existing

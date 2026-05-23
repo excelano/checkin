@@ -144,10 +144,41 @@ final class Inbox {
         currentPresence = fetchedPresence
         customStatusMessage = fetchedMessage
         isOutOfOffice = await oooT
+        await refreshPresenceSession()
         lastRefreshedAt = Date()
         lastRefreshFailed = anyFailed || meetingsResult.failed || emailsResult.failed || chatsFailed
         await updateAppBadge()
         await rescheduleMeetingNotificationsIfEnabled()
+    }
+
+    /// sessionId for `/me/presence/setPresence`. Microsoft constrains
+    /// delegated-permission callers to set sessionId equal to the
+    /// calling app's Azure AD client ID — a random GUID is silently
+    /// rejected. We use the effective client ID (custom registration
+    /// override if set, otherwise the published one).
+    private var presenceSessionId: String {
+        Constants.effectiveClientID
+    }
+
+    /// Re-up CheckIn's presence session so the user's preferred presence
+    /// keeps applying when no other Microsoft client (Teams) holds a
+    /// session. Called on every refresh so the 1-hour session never has
+    /// a chance to expire while CheckIn is in active use. For `.offline`
+    /// and `.unknown`, clears the session instead — Offline is expressed
+    /// through the preferred-presence override, and Unknown (reset) is
+    /// the user explicitly asking us to step out of the loop.
+    private func refreshPresenceSession() async {
+        guard teamsEnabled else { return }
+        let sessionId = presenceSessionId
+        do {
+            if currentPresence == .unknown || currentPresence == .offline {
+                try await graphClient.clearSessionPresence(sessionId: sessionId)
+            } else {
+                try await graphClient.setSessionPresence(sessionId: sessionId, presence: currentPresence)
+            }
+        } catch {
+            logger.error("refreshPresenceSession failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Read the auto-reply status from Graph. Treats any non-`disabled`
@@ -242,7 +273,20 @@ final class Inbox {
     func setPresence(_ presence: TeamsPresence) async {
         let previous = currentPresence
         currentPresence = presence
+        let sessionId = presenceSessionId
         do {
+            // Session goes first so Graph has CheckIn's session in place
+            // before the preferred is applied — preferred only takes
+            // effect when a session exists for the user.
+            do {
+                if presence == .unknown || presence == .offline {
+                    try await graphClient.clearSessionPresence(sessionId: sessionId)
+                } else {
+                    try await graphClient.setSessionPresence(sessionId: sessionId, presence: presence)
+                }
+            } catch {
+                logger.error("setPresence session sync failed: \(error.localizedDescription, privacy: .public)")
+            }
             if presence == .unknown {
                 try await graphClient.clearUserPreferredPresence()
                 let (p, msg) = await fetchPresence()

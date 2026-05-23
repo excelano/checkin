@@ -156,6 +156,38 @@ final class GraphClient {
         )
     }
 
+    /// Register CheckIn as an active presence-session source so the
+    /// user's preferred presence keeps applying even when no other
+    /// Microsoft client (Teams) holds a session. Max expiration is
+    /// `PT1H`; callers re-up on every refresh.
+    /// `.offline` is not a valid combination for this endpoint —
+    /// the caller must route .offline / .unknown through
+    /// `clearSessionPresence` instead.
+    func setSessionPresence(sessionId: String, presence: TeamsPresence) async throws {
+        guard let availability = presence.graphAvailability,
+              let activity = presence.graphActivity,
+              availability != "Offline" else { return }
+        try await post(
+            "/me/presence/setPresence",
+            body: SetSessionPresenceBody(
+                sessionId: sessionId,
+                availability: availability,
+                activity: activity,
+                expirationDuration: "PT1H"
+            )
+        )
+    }
+
+    /// Drop CheckIn's presence session. Used when the user resets to
+    /// auto or chooses Offline (which we want to express via the
+    /// preferred-presence override, not a session).
+    func clearSessionPresence(sessionId: String) async throws {
+        try await post(
+            "/me/presence/clearPresence",
+            body: ClearSessionPresenceBody(sessionId: sessionId)
+        )
+    }
+
     /// Read the user's auto-reply settings. Used to drive the OOO indicator
     /// and to preserve any existing auto-reply text when toggling.
     func fetchAutomaticReplies() async throws -> AutomaticRepliesResponse {
