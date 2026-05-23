@@ -811,6 +811,7 @@ final class Inbox {
     func deleteMeeting(meetingId: String) async {
         guard let meeting = meetingWithId(meetingId) else { return }
         let snapshot = summary
+        let referenceSnapshot = conflictReferenceMeetings
 
         if summary?.meeting?.id == meetingId {
             if let promoted = summary?.laterToday.first {
@@ -821,6 +822,12 @@ final class Inbox {
             }
         } else if let idx = summary?.laterToday.firstIndex(where: { $0.id == meetingId }) {
             summary?.laterToday.remove(at: idx)
+        } else if let idx = conflictReferenceMeetings.firstIndex(where: { $0.id == meetingId }) {
+            // Beyond-today plain calendar event surfaced via the conflict
+            // resolver. Drop it from the reference pool so the row
+            // disappears and any meeting that was only conflicting
+            // because of it stops showing the warning.
+            conflictReferenceMeetings.remove(at: idx)
         }
         recomputeConflicts()
 
@@ -829,6 +836,8 @@ final class Inbox {
         } catch {
             logger.error("deleteEvent failed: \(error.localizedDescription, privacy: .public)")
             summary = snapshot
+            conflictReferenceMeetings = referenceSnapshot
+            recomputeConflicts()
         }
     }
 

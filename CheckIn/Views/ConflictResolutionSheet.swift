@@ -12,8 +12,9 @@ struct ConflictResolutionSheet: View {
     @Environment(\.dismiss) private var dismiss
     /// IDs captured when the sheet opens. Rows render in this order from
     /// live Inbox state; ids whose meeting no longer exists (deleted)
-    /// are silently skipped. Keeps the sheet stable when any meeting is
-    /// removed — only that row disappears.
+    /// or has been declined are silently skipped — both actions are
+    /// terminal in the resolver context, so the row drops out instead
+    /// of sitting there with a "Declined" pill the user can't act on.
     @State private var trackedIds: [String] = []
 
     var body: some View {
@@ -27,13 +28,18 @@ struct ConflictResolutionSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
                     ForEach(trackedIds, id: \.self) { id in
-                        if let meeting = lookupMeeting(id: id) {
+                        if let meeting = lookupMeeting(id: id),
+                           meeting.responseStatus != .declined {
                             ConflictMeetingRow(
                                 meeting: meeting,
                                 onRsvp: { response in
+                                    if response == .declined {
+                                        trackedIds.removeAll { $0 == meeting.id }
+                                    }
                                     Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
                                 },
                                 onDelete: {
+                                    trackedIds.removeAll { $0 == meeting.id }
                                     Task { await inbox.deleteMeeting(meetingId: meeting.id) }
                                 }
                             )
@@ -67,10 +73,11 @@ struct ConflictResolutionSheet: View {
         guard trackedIds.isEmpty else { return }
         var ids = [primaryMeetingId]
         if let primary = lookupMeeting(id: primaryMeetingId) {
-            let candidates = [inbox.summary?.meeting].compactMap { $0 }
-                + (inbox.summary?.laterToday ?? [])
-                + Array(inbox.inviteMeetings.values)
-                + inbox.conflictReferenceMeetings
+            var candidates: [Meeting] = []
+            if let m = inbox.summary?.meeting { candidates.append(m) }
+            candidates.append(contentsOf: inbox.summary?.laterToday ?? [])
+            candidates.append(contentsOf: inbox.inviteMeetings.values)
+            candidates.append(contentsOf: inbox.conflictReferenceMeetings)
             // De-dup by id — an invite and the calendar event it
             // refers to share the same Graph event id and would
             // otherwise produce two rows for the same meeting.
