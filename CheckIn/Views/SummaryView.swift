@@ -197,7 +197,7 @@ struct SummaryView: View {
             }
             Section {
                 if summary.chats.isEmpty {
-                    emptyStateButton(label: "Mark today's chats unread",
+                    emptyStateButton(label: "Mark unread: today's chats",
                                      icon: "bubble.left.fill") {
                         Task { await inbox.markTodayChatsUnread() }
                     }
@@ -287,7 +287,7 @@ struct SummaryView: View {
             let extras = summary.totalUnreadEmails - summary.emails.count
             Section {
                 if summary.emails.isEmpty {
-                    emptyStateButton(label: "Mark today's emails unread",
+                    emptyStateButton(label: "Mark unread: today's emails",
                                      icon: "envelope.badge") {
                         Task { await inbox.markTodayUnread() }
                     }

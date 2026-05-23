@@ -34,27 +34,30 @@ struct BulkActionsMenu: View {
         Menu {
             if !emails.isEmpty {
                 Button(action: onMarkAllRead) {
-                    Label("Mark \(emails.count) read", systemImage: "envelope.open")
+                    Label("Mark read: \(emails.count) visible", systemImage: "envelope.open")
                 }
             }
             if otherCount > 0 {
                 Button(action: onMarkOtherRead) {
-                    Label("Mark \(otherCount) in Other read", systemImage: "tray.2")
+                    Label("Mark read: \(otherCount) in Other inbox", systemImage: "tray.2")
                 }
             }
             if meetingNoticeCount > 0 {
                 Button(action: onMarkMeetingNoticesRead) {
-                    Label("Mark \(meetingNoticeCount) meeting notices read", systemImage: "calendar.badge.checkmark")
+                    Label("Mark read: \(meetingNoticeCount) meeting notice\(meetingNoticeCount == 1 ? "" : "s")",
+                          systemImage: "calendar.badge.checkmark")
                 }
             }
             if mailingListCount > 0 {
                 Button(action: onMarkMailingListsRead) {
-                    Label("Mark \(mailingListCount) mailing lists read", systemImage: "newspaper")
+                    Label("Mark read: \(mailingListCount) mailing list\(mailingListCount == 1 ? "" : "s")",
+                          systemImage: "newspaper")
                 }
             }
             if externalCount > 0 {
                 Button(action: onMarkExternalRead) {
-                    Label("Mark \(externalCount) external senders read", systemImage: "globe")
+                    Label("Mark read: \(externalCount) external sender\(externalCount == 1 ? "" : "s")",
+                          systemImage: "globe")
                 }
             }
             if unflaggedCount > 0 {
@@ -80,7 +83,7 @@ struct BulkActionsMenu: View {
             }
             if hasItemsAbove { Divider() }
             Button(action: onMarkTodayUnread) {
-                Label("Mark today's emails unread", systemImage: "envelope.badge")
+                Label("Mark unread: today's emails", systemImage: "envelope.badge")
             }
         } label: {
             ZStack {
