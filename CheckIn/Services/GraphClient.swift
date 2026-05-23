@@ -112,11 +112,14 @@ final class GraphClient {
         try await delete("/me/events/\(id)")
     }
 
-    /// Current Teams presence (collapsed to our smaller enum).
-    /// Presence.ReadWrite.User required.
-    func fetchPresence() async throws -> TeamsPresence {
+    /// Current Teams presence (collapsed to our smaller enum) plus the
+    /// short custom status message that shows under the user's name in
+    /// Teams. Empty string when no message is set. Presence.ReadWrite
+    /// required for both.
+    func fetchPresence() async throws -> (presence: TeamsPresence, statusMessage: String) {
         let data: PresenceResponse = try await get("/me/presence", query: [:])
-        return TeamsPresence(graphAvailability: data.availability)
+        let message = data.statusMessage?.message?.content ?? ""
+        return (TeamsPresence(graphAvailability: data.availability), message)
     }
 
     /// Pin the user's preferred presence — overrides Teams' own
@@ -141,6 +144,16 @@ final class GraphClient {
     /// POSTs an empty body.
     func clearUserPreferredPresence() async throws {
         try await emptyPost("/me/presence/clearUserPreferredPresence")
+    }
+
+    /// Set (or clear) the user's Teams status message — the short text
+    /// shown under the user's name in Teams, independent of presence.
+    /// Passing an empty string clears it.
+    func setStatusMessage(_ content: String) async throws {
+        try await post(
+            "/me/presence/setStatusMessage",
+            body: SetStatusMessageBody(content: content)
+        )
     }
 
     /// Read the user's auto-reply settings. Used to drive the OOO indicator

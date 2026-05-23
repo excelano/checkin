@@ -27,6 +27,10 @@ final class Inbox {
     /// `scheduled`. Drives the OOO indicator that replaces the presence
     /// glyph and reroutes the tap to Settings. Refreshed on every refresh.
     private(set) var isOutOfOffice: Bool = false
+    /// Teams custom status message — the short text that shows under the
+    /// user's name in Teams alongside the presence glyph. Empty when
+    /// not set. Refreshed on every refresh.
+    private(set) var customStatusMessage: String = ""
     /// Current Teams presence. Refreshed alongside the rest of the
     /// summary; `setPresence(_:)` updates it optimistically and confirms
     /// with the server. `.unknown` before the first successful fetch,
@@ -136,7 +140,9 @@ final class Inbox {
                                  emails: emailsResult.emails,
                                  chats: chats,
                                  totalUnreadEmails: emailsResult.totalCount)
-        currentPresence = await presenceT
+        let (fetchedPresence, fetchedMessage) = await presenceT
+        currentPresence = fetchedPresence
+        customStatusMessage = fetchedMessage
         isOutOfOffice = await oooT
         lastRefreshedAt = Date()
         lastRefreshFailed = anyFailed || meetingsResult.failed || emailsResult.failed || chatsFailed
@@ -197,6 +203,20 @@ final class Inbox {
     private let defaultOutOfOfficeMessage =
         "I'm currently out of the office and will respond when I return."
 
+    /// Set (or clear) the Teams custom status message. Optimistic update
+    /// with revert on failure, mirroring the presence pattern.
+    func setCustomStatusMessage(_ message: String) async {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previous = customStatusMessage
+        customStatusMessage = trimmed
+        do {
+            try await graphClient.setStatusMessage(trimmed)
+        } catch {
+            logger.error("setCustomStatusMessage failed: \(error.localizedDescription, privacy: .public)")
+            customStatusMessage = previous
+        }
+    }
+
     /// Enable auto-replies (`alwaysEnabled` with no end date). Optimistic
     /// UI update with revert on failure, mirroring the presence pattern.
     func setOutOfOffice(_ on: Bool) async {
@@ -225,7 +245,9 @@ final class Inbox {
         do {
             if presence == .unknown {
                 try await graphClient.clearUserPreferredPresence()
-                currentPresence = await fetchPresence()
+                let (p, msg) = await fetchPresence()
+                currentPresence = p
+                customStatusMessage = msg
             } else {
                 try await graphClient.setUserPreferredPresence(presence)
             }
@@ -663,13 +685,15 @@ final class Inbox {
 
     /// Best-effort presence read. Failures don't bump `lastRefreshFailed`
     /// — presence is a secondary concern, not critical to the panel.
-    private func fetchPresence() async -> TeamsPresence {
-        guard teamsEnabled else { return .unknown }
+    /// Returns the presence plus the custom status message so callers
+    /// can publish both in lockstep from a single Graph round-trip.
+    private func fetchPresence() async -> (TeamsPresence, String) {
+        guard teamsEnabled else { return (.unknown, "") }
         do {
             return try await graphClient.fetchPresence()
         } catch {
             logger.error("fetchPresence failed: \(error.localizedDescription, privacy: .public)")
-            return .unknown
+            return (.unknown, "")
         }
     }
 

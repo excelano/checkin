@@ -11,6 +11,7 @@ struct SummaryView: View {
     var authService: AuthService
 
     @State private var showSettings = false
+    @State private var showCustomMessageSheet = false
     /// The meeting whose conflict the user wants to resolve. Driving the
     /// sheet via `.sheet(item:)` (rather than a Bool + separate id) means
     /// the sheet correctly targets whichever meeting was long-pressed.
@@ -43,6 +44,17 @@ struct SummaryView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) {
             SettingsView(authService: authService, inbox: inbox)
+        }
+        .sheet(isPresented: $showCustomMessageSheet) {
+            CustomMessageSheet(
+                initialMessage: inbox.customStatusMessage,
+                onSave: { text in
+                    Task { await inbox.setCustomStatusMessage(text) }
+                },
+                onClear: {
+                    Task { await inbox.setCustomStatusMessage("") }
+                }
+            )
         }
         .sheet(item: $conflictTarget) { target in
             ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
@@ -189,14 +201,31 @@ struct SummaryView: View {
                 }
             } header: {
                 sectionHeader(title: "Chats", count: summary.chats.count) {
-                    PresenceMenu(
-                        presence: inbox.currentPresence,
-                        isOutOfOffice: inbox.isOutOfOffice,
-                        onSelect: { selection in
-                            Task { await inbox.setPresence(selection) }
-                        },
-                        onOpenSettings: { showSettings = true }
-                    )
+                    HStack(spacing: 8) {
+                        if !inbox.customStatusMessage.isEmpty {
+                            Button {
+                                showCustomMessageSheet = true
+                            } label: {
+                                Text(inbox.customStatusMessage)
+                                    .font(.caption.italic())
+                                    .foregroundStyle(Brand.textMuted)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .accessibilityLabel("Custom status message")
+                            .accessibilityHint("Tap to edit")
+                        }
+                        PresenceMenu(
+                            presence: inbox.currentPresence,
+                            isOutOfOffice: inbox.isOutOfOffice,
+                            customStatusMessage: inbox.customStatusMessage,
+                            onSelect: { selection in
+                                Task { await inbox.setPresence(selection) }
+                            },
+                            onOpenSettings: { showSettings = true },
+                            onEditCustomMessage: { showCustomMessageSheet = true }
+                        )
+                    }
                 }
             }
             let extras = summary.totalUnreadEmails - summary.emails.count
@@ -350,7 +379,7 @@ struct SummaryView: View {
                 .background(Brand.bgDarker)
                 .clipShape(Capsule())
             subtitle()
-            Spacer()
+            Spacer(minLength: 8)
             trailing()
         }
         .transaction { $0.animation = nil }

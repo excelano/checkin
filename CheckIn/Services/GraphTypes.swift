@@ -157,6 +157,35 @@ struct BatchResponseItem: Decodable {
 struct PresenceResponse: Decodable {
     let availability: String
     let activity: String
+    let statusMessage: StatusMessageEnvelope?
+}
+
+struct StatusMessageEnvelope: Decodable {
+    let message: StatusMessageContent?
+}
+
+struct StatusMessageContent: Decodable {
+    let content: String?
+    let contentType: String?
+}
+
+struct SetStatusMessageBody: Encodable {
+    let statusMessage: StatusMessagePayload
+
+    init(content: String) {
+        statusMessage = StatusMessagePayload(
+            message: StatusMessagePayloadContent(content: content, contentType: "text")
+        )
+    }
+}
+
+struct StatusMessagePayload: Encodable {
+    let message: StatusMessagePayloadContent
+}
+
+struct StatusMessagePayloadContent: Encodable {
+    let content: String
+    let contentType: String
 }
 
 struct SetPresenceBody: Encodable {

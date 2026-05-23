@@ -11,8 +11,10 @@ import SwiftUI
 struct PresenceMenu: View {
     let presence: TeamsPresence
     let isOutOfOffice: Bool
+    let customStatusMessage: String
     let onSelect: (TeamsPresence) -> Void
     let onOpenSettings: () -> Void
+    let onEditCustomMessage: () -> Void
 
     var body: some View {
         if isOutOfOffice {
@@ -33,6 +35,16 @@ struct PresenceMenu: View {
                 menuButton(for: .beRightBack)
                 menuButton(for: .away)
                 menuButton(for: .offline)
+                Divider()
+                Button(action: onEditCustomMessage) {
+                    Label {
+                        Text(customStatusMessage.isEmpty ? "Custom message…" : customStatusMessage)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } icon: {
+                        Image(systemName: "text.bubble")
+                    }
+                }
                 Divider()
                 Button {
                     onSelect(.unknown)
