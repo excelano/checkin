@@ -105,7 +105,6 @@ What a user can do, mapped to the entry point in the UI.
 - Compose a brand-new email from scratch (only Reply-all from existing messages)
 - Move emails between folders / archive
 - View past meetings (the calendar view is "today only")
-- RSVP to invites for meetings beyond today's window from inside CheckIn (those invites surface as regular emails until the meeting moves into today's view)
 - Open the specific calendar event for non-Teams meetings (only the calendar at large, via Teams)
 - Edit the auto-reply message body (only the on/off state — edit the message itself in Outlook on the web)
 - App Intents / Siri shortcuts

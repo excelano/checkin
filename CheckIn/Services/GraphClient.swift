@@ -109,6 +109,40 @@ final class GraphClient {
         return (meetings.first, Array(meetings.dropFirst()))
     }
 
+    /// Calendar events overlapping the given range, plain mapping (no
+    /// conflict computation). Used purely as a reference pool for
+    /// conflict detection on Phase 2 invite-email RSVP — so a plain
+    /// calendar event that overlaps an invite can flag the invite as
+    /// conflicting. Not displayed anywhere in the UI. Caps at 100
+    /// events as a guard against multi-week ranges with very dense
+    /// calendars.
+    func eventsInRange(start: Date, end: Date) async throws -> [Meeting] {
+        let formatter = ISO8601DateFormatter()
+        let data: GraphList<CalendarEventResponse> = try await get("/me/calendarView", query: [
+            "startDateTime": formatter.string(from: start),
+            "endDateTime": formatter.string(from: end),
+            "$top": "100",
+            "$orderby": "start/dateTime",
+            "$select": "id,subject,organizer,start,end,onlineMeeting,responseStatus,isCancelled"
+        ])
+
+        return data.value
+            .filter { !($0.isCancelled ?? false) && $0.responseStatus?.response != "declined" }
+            .map { e in
+                Meeting(
+                    id: e.id,
+                    subject: e.subject,
+                    organizer: e.organizer.emailAddress.name,
+                    organizerEmail: e.organizer.emailAddress.address,
+                    start: parseGraphDate(e.start.dateTime, timeZone: e.start.timeZone),
+                    end: parseGraphDate(e.end.dateTime, timeZone: e.end.timeZone),
+                    joinUrl: e.onlineMeeting?.joinUrl,
+                    responseStatus: MeetingResponse(rawValue: e.responseStatus?.response ?? "") ?? .none,
+                    hasConflict: false
+                )
+            }
+    }
+
     /// DELETE an event. For invitation/personal events this removes it
     /// from the user's calendar. For events the user organizes Graph
     /// also sends cancellations to attendees — the caller is expected to
@@ -247,7 +281,11 @@ final class GraphClient {
     /// `ConsistencyLevel: eventual` header. The
     /// `microsoft.graph.eventMessage/meetingMessageType` cast fetches the
     /// meeting-subtype field for invite/response messages without changing
-    /// the base collection type.
+    /// the base collection type. `$expand` is intentionally NOT used —
+    /// Graph rejects it in combination with the advanced-query trio
+    /// (`$filter` + `$count` + `ConsistencyLevel: eventual`). Underlying
+    /// events for invite messages are fetched separately via
+    /// `fetchInviteEvents(messageIds:)`.
     func unreadEmails(top: Int = 20) async throws -> (emails: [Email], totalCount: Int) {
         let data: GraphList<EmailResponse> = try await get(
             "/me/mailFolders/inbox/messages",
@@ -279,6 +317,66 @@ final class GraphClient {
             )
         }
         return (emails, data.count ?? emails.count)
+    }
+
+    /// Fetch the underlying calendar event for each invite-message id
+    /// (Graph's `microsoft.graph.eventMessage/event` navigation
+    /// property). Each fetch is concurrent; failures on individual
+    /// messages are swallowed (best-effort) so a single bad cast can't
+    /// kill the whole batch. Returns a map keyed by message id.
+    /// `hasConflict` is initialized false here — the caller is
+    /// expected to recompute it against the today-window pool.
+    func fetchInviteEvents(messageIds: [String]) async -> [String: Meeting] {
+        guard !messageIds.isEmpty else { return [:] }
+        var result: [String: Meeting] = [:]
+        // Chunk at 20 — Graph's per-batch sub-request cap. A single
+        // `$batch` is one HTTP request, so per-mailbox concurrency
+        // throttling doesn't fire even with multiple invites in flight.
+        for chunk in messageIds.batched(by: 20) {
+            let requests = chunk.enumerated().map { (i, id) in
+                BatchGetRequest(
+                    id: "\(i)",
+                    url: "/me/messages/\(id)?$select=id&$expand=microsoft.graph.eventMessage/event($select=id,subject,organizer,start,end,onlineMeeting,responseStatus)"
+                )
+            }
+            do {
+                let response: BatchGetResponse<MessageEventExpansionResponse> = try await postDecoded(
+                    "/$batch",
+                    body: BatchGetEnvelope(requests: requests)
+                )
+                for item in response.responses {
+                    guard let idx = Int(item.id), idx < chunk.count,
+                          let event = item.body?.event,
+                          let eventId = event.id,
+                          let subject = event.subject,
+                          let organizer = event.organizer,
+                          let start = event.start,
+                          let end = event.end else { continue }
+                    let messageId = chunk[idx]
+                    let responseStatus = MeetingResponse(rawValue: event.responseStatus?.response ?? "") ?? .none
+                    result[messageId] = Meeting(
+                        id: eventId,
+                        subject: subject,
+                        organizer: organizer.emailAddress.name,
+                        organizerEmail: organizer.emailAddress.address,
+                        start: parseGraphDate(start.dateTime, timeZone: start.timeZone),
+                        end: parseGraphDate(end.dateTime, timeZone: end.timeZone),
+                        joinUrl: event.onlineMeeting?.joinUrl,
+                        responseStatus: responseStatus,
+                        hasConflict: false
+                    )
+                }
+            } catch {
+                // Best-effort — log the error so a misconfigured request
+                // is visible without bringing down the rest of the
+                // refresh. The outer summary still renders; just no
+                // RSVP buttons on the affected invites.
+                #if DEBUG
+                print("CHECKIN-DEBUG fetchInviteEvents batch err=\(error)")
+                #endif
+            }
+        }
+        return result
     }
 
     /// Mail.ReadWrite required. Idempotent.

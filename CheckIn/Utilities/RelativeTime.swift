@@ -85,6 +85,18 @@ func formatMeetingTime(_ date: Date) -> String {
     return "\(dateStr) at \(timeStr)"
 }
 
+/// Date + time range. Same prefix as `formatMeetingTime(_:)` for the
+/// start, then an en-dash and the end time-of-day. Used on invite-
+/// email rows and the invite preview sheet so the user sees both the
+/// start and end without doing duration math. Examples:
+/// "Today at 3:00 PM – 4:00 PM", "May 26 at 2:00 PM – 3:00 PM".
+/// Meetings that cross midnight render the end as just the time of
+/// day (no date hint); rare enough that the slight ambiguity beats
+/// the layout cost of repeating the date.
+func formatMeetingTime(_ start: Date, end: Date) -> String {
+    "\(formatMeetingTime(start)) – \(formatTimeOfDay(end))"
+}
+
 func truncate(_ s: String, maxLen: Int) -> String {
     let cleaned = s.replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\r", with: "")

@@ -111,7 +111,7 @@ struct EmailRow: View {
         HStack(spacing: 6) {
             Image(systemName: "calendar")
                 .font(.footnote)
-            Text(formatMeetingTime(meeting.start))
+            Text(formatMeetingTime(meeting.start, end: meeting.end))
                 .font(.footnote)
             Spacer(minLength: 8)
             if let label = meeting.responseStatus.displayLabel {

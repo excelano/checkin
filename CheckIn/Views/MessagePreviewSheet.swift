@@ -140,7 +140,7 @@ struct MessagePreviewSheet: View {
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
                     .font(.footnote)
-                Text(formatMeetingTime(meeting.start))
+                Text(formatMeetingTime(meeting.start, end: meeting.end))
                     .font(.footnote)
             }
             .foregroundStyle(Brand.textMuted)

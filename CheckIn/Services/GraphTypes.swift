@@ -102,6 +102,31 @@ struct EmailBodyResponse: Decodable {
     let body: BodyContentResponse
 }
 
+/// Used by `fetchInviteEvents` to pull the underlying event for an
+/// invite message via `$expand=microsoft.graph.eventMessage/event`.
+/// Single-resource GET (or a `$batch` sub-request), so the advanced-
+/// query restriction that blocks `$expand` on the list query doesn't
+/// apply.
+struct MessageEventExpansionResponse: Decodable {
+    let event: ExpandedEventResponse?
+}
+
+/// Lenient mirror of `CalendarEventResponse` used only for the
+/// `$expand`-on-eventMessage path. Every field is optional so a
+/// partial response (Graph occasionally omits fields on already-
+/// declined or stale invites) doesn't fail decoding the whole batch.
+/// Caller is expected to guard the required fields when synthesizing
+/// a `Meeting`.
+struct ExpandedEventResponse: Decodable {
+    let id: String?
+    let subject: String?
+    let organizer: OrganizerResponse?
+    let start: DateTimeResponse?
+    let end: DateTimeResponse?
+    let onlineMeeting: OnlineMeetingResponse?
+    let responseStatus: EventResponseStatus?
+}
+
 /// POST body for `/me/messages/{id}/replyAll` — Graph wraps the user's
 /// short message in `comment` and stitches it onto the original
 /// conversation with proper `In-Reply-To` / `References` threading.
@@ -220,6 +245,46 @@ struct BatchResponse: Decodable {
 struct BatchResponseItem: Decodable {
     let id: String
     let status: Int
+}
+
+/// `$batch` sub-request for a bodyless GET. The existing
+/// `BatchRequest<B>` always serializes a `body` field, which Graph
+/// rejects on GETs — so this is a separate, body-free shape.
+struct BatchGetRequest: Encodable {
+    let id: String
+    let method: String = "GET"
+    let url: String
+}
+
+struct BatchGetEnvelope: Encodable {
+    let requests: [BatchGetRequest]
+}
+
+/// `$batch` response decoded with a typed `body` per successful
+/// sub-request. Non-2xx items have a nil `body` so a single failing
+/// sub-request can't fail the whole batch — the caller filters them
+/// out by status.
+struct BatchGetResponse<Body: Decodable>: Decodable {
+    let responses: [BatchGetResponseItem<Body>]
+}
+
+struct BatchGetResponseItem<Body: Decodable>: Decodable {
+    let id: String
+    let status: Int
+    let body: Body?
+
+    private enum CodingKeys: String, CodingKey { case id, status, body }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        status = try c.decode(Int.self, forKey: .status)
+        if (200..<300).contains(status) {
+            body = try? c.decode(Body.self, forKey: .body)
+        } else {
+            body = nil
+        }
+    }
 }
 
 struct PresenceResponse: Decodable {
