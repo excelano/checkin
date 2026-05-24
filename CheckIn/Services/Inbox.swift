@@ -1031,18 +1031,23 @@ final class Inbox {
     /// be exact. Returns a map keyed by email id; emails with no
     /// matching event simply don't appear (the row falls back to
     /// regular-email rendering).
-    /// Resolve each `meetingRequest` invite email to a Meeting so the
-    /// row can surface meeting time / RSVP / conflict. Prefers an event
-    /// already on the user's calendar (matched by normalized subject +
-    /// start time within a minute) because that carries `responseStatus`
-    /// alongside the event id. Falls back to a Graph fetch
-    /// (`fetchInviteEventId`) for invites whose underlying event hasn't
-    /// landed on the calendar yet — necessary because tenants that
-    /// don't auto-tentative invitations leave un-responded invites off
-    /// the calendar entirely. Either way, the Meeting carries the real
-    /// event id, so RSVP everywhere routes through a single Graph call.
-    /// Invites whose event id can't be resolved are skipped — the row
-    /// falls back to plain-email rendering rather than a broken-RSVP UI.
+    /// Resolve each `meetingRequest` invite email to a calendar event
+    /// so the row can surface meeting time / RSVP / conflict. Two-pass
+    /// match:
+    /// 1. Subject + start-time-within-a-minute against the calendar
+    ///    pool. Free, no Graph call, covers the common case.
+    /// 2. Fallback: pull `iCalUId` from the invitation's
+    ///    `PidLidGlobalObjectId` MAPI property and look up the calendar
+    ///    pool by that. Deterministic — disambiguates same-subject
+    ///    collisions and rescheduled meetings whose start time on the
+    ///    invitation no longer matches the calendar entry. The looked-up
+    ///    Meeting carries the real event id and responseStatus; no
+    ///    synthetic placeholders.
+    ///
+    /// Invites with no matching event in either pass are returned
+    /// absent from the map. The row's "Removed" pill takes that case
+    /// (event was declined, deleted, or cancelled — the absence is
+    /// the signal).
     private func matchInvitesToCalendar(emails: [Email], calendar: [Meeting]) async -> [String: Meeting] {
         var result: [String: Meeting] = [:]
         for email in emails where email.isInvite {
@@ -1050,19 +1055,12 @@ final class Inbox {
                 result[email.id] = match
                 continue
             }
-            guard let start = email.meetingStart, let end = email.meetingEnd else { continue }
-            guard let eventId = await graphClient.fetchInviteEventId(messageId: email.id) else { continue }
-            result[email.id] = Meeting(
-                id: eventId,
-                subject: email.subject,
-                organizer: email.from,
-                organizerEmail: email.fromAddress.isEmpty ? nil : email.fromAddress,
-                start: start,
-                end: end,
-                joinUrl: nil,
-                responseStatus: .notResponded,
-                hasConflict: false
-            )
+            guard let iCalUId = await graphClient.fetchInviteICalUId(messageId: email.id) else { continue }
+            if let match = calendar.first(where: {
+                $0.iCalUId?.caseInsensitiveCompare(iCalUId) == .orderedSame
+            }) {
+                result[email.id] = match
+            }
         }
         return result
     }

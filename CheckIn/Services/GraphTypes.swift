@@ -35,6 +35,11 @@ struct CalendarEventResponse: Decodable {
     let onlineMeeting: OnlineMeetingResponse?
     let responseStatus: EventResponseStatus?
     let isCancelled: Bool?
+    /// Universal meeting identifier — Graph's hex-encoded form of the
+    /// underlying MAPI `PidLidGlobalObjectId`. Same value on the
+    /// corresponding invitation eventMessage, so it's the deterministic
+    /// join key for email↔meeting matching.
+    let iCalUId: String?
 }
 
 struct EventResponseStatus: Decodable {
@@ -59,17 +64,18 @@ struct EmailAddressResponse: Decodable {
     let address: String?
 }
 
-/// Minimal shape for `fetchInviteEventId` — only the underlying event's
-/// id matters; subject/start/end already came from the eventMessage
-/// fields in the list query. Both layers are optional because Graph
-/// returns empty stubs for invitations that haven't been tentatively
-/// accepted yet.
-struct MessageEventIdResponse: Decodable {
-    let event: EventIdResponse?
+/// Minimal shape for `fetchInviteICalUId`. The MAPI named property
+/// `PidLidGlobalObjectId` is exposed via `singleValueExtendedProperties`
+/// filtered to the meeting namespace ({6ED8DA90-…}/0x3). Its base64
+/// value, hex-decoded, equals the iCalUId of the corresponding event —
+/// the deterministic join key from eventMessage to event.
+struct MessageSingleValueExtPropResponse: Decodable {
+    let singleValueExtendedProperties: [SingleValueExtPropResponse]?
 }
 
-struct EventIdResponse: Decodable {
-    let id: String?
+struct SingleValueExtPropResponse: Decodable {
+    let id: String
+    let value: String?
 }
 
 struct EmailResponse: Decodable {

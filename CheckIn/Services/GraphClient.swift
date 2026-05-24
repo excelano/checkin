@@ -64,7 +64,7 @@ final class GraphClient {
             "endDateTime": formatter.string(from: endOfDay),
             "$top": "10",
             "$orderby": "start/dateTime",
-            "$select": "id,subject,organizer,start,end,onlineMeeting,responseStatus,isCancelled"
+            "$select": "id,subject,organizer,start,end,onlineMeeting,responseStatus,isCancelled,iCalUId"
         ])
 
         // Skip cancelled events (they stay in calendarView until removed)
@@ -102,7 +102,8 @@ final class GraphClient {
                 end: t.end,
                 joinUrl: t.event.onlineMeeting?.joinUrl,
                 responseStatus: response,
-                hasConflict: hasConflict
+                hasConflict: hasConflict,
+                iCalUId: t.event.iCalUId
             )
         }
 
@@ -123,7 +124,7 @@ final class GraphClient {
             "endDateTime": formatter.string(from: end),
             "$top": "100",
             "$orderby": "start/dateTime",
-            "$select": "id,subject,organizer,start,end,onlineMeeting,responseStatus,isCancelled"
+            "$select": "id,subject,organizer,start,end,onlineMeeting,responseStatus,isCancelled,iCalUId"
         ])
 
         return data.value
@@ -138,7 +139,8 @@ final class GraphClient {
                     end: parseGraphDate(e.end.dateTime, timeZone: e.end.timeZone),
                     joinUrl: e.onlineMeeting?.joinUrl,
                     responseStatus: MeetingResponse(rawValue: e.responseStatus?.response ?? "") ?? .none,
-                    hasConflict: false
+                    hasConflict: false,
+                    iCalUId: e.iCalUId
                 )
             }
     }
@@ -276,24 +278,28 @@ final class GraphClient {
         try await post("/me/events/\(id)/\(action)", body: RsvpBody(sendResponse: true))
     }
 
-    /// Resolve the underlying event id for an invite email when the
-    /// event isn't on the user's calendar yet (tenants that don't
-    /// auto-tentative invitations). Uses `$expand=event` without an
-    /// inner `$select` — Graph returns empty-stub events when a strict
-    /// `$select` is applied to a not-yet-tentatived invitation, but
-    /// the default field set sometimes contains the id. Returns nil on
-    /// any failure or when Graph hands back no id; caller treats nil
-    /// as "no RSVP UI for this invite".
-    func fetchInviteEventId(messageId: String) async -> String? {
+    /// Pull the iCalUId of the meeting referenced by an invite email.
+    /// Reads `PidLidGlobalObjectId` (MAPI named property
+    /// {6ED8DA90-…}/0x3) via `singleValueExtendedProperties` and
+    /// converts its base64 binary to the uppercase hex form Graph uses
+    /// for `event.iCalUId`. Used as the deterministic join key from an
+    /// invitation eventMessage to its calendar event — replaces the
+    /// fragile subject+time match for cases the matcher can't resolve.
+    /// Returns nil on any failure or when Graph omits the property.
+    func fetchInviteICalUId(messageId: String) async -> String? {
         do {
-            let response: MessageEventIdResponse = try await get(
+            let response: MessageSingleValueExtPropResponse = try await get(
                 "/me/messages/\(messageId)",
-                query: ["$expand": "microsoft.graph.eventMessage/event"]
+                query: [
+                    "$expand": "singleValueExtendedProperties($filter=id eq 'Binary {6ED8DA90-450B-101B-98DA-00AA003F1305} Id 0x3')"
+                ]
             )
-            return response.event?.id
+            guard let base64 = response.singleValueExtendedProperties?.first?.value,
+                  let data = Data(base64Encoded: base64) else { return nil }
+            return data.map { String(format: "%02X", $0) }.joined()
         } catch {
             Logger(subsystem: "com.excelano.checkin", category: "graph")
-                .error("fetchInviteEventId failed: \(error.localizedDescription, privacy: .public)")
+                .error("fetchInviteICalUId failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

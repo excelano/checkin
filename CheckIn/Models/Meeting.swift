@@ -23,6 +23,11 @@ struct Meeting: Identifiable {
     /// True when at least one other non-cancelled, non-declined event in
     /// today's window overlaps this one's time range.
     let hasConflict: Bool
+    /// Universal meeting identifier — hex string of the same binary value
+    /// that lives on the corresponding eventMessage's `PidLidGlobalObjectId`
+    /// MAPI property. Lets us join an invite email to its event without
+    /// fuzzy subject/time matching. Nil only when Graph omits the field.
+    let iCalUId: String?
 
     func with(responseStatus: MeetingResponse) -> Meeting {
         Meeting(id: id,
@@ -33,7 +38,8 @@ struct Meeting: Identifiable {
                 end: end,
                 joinUrl: joinUrl,
                 responseStatus: responseStatus,
-                hasConflict: hasConflict)
+                hasConflict: hasConflict,
+                iCalUId: iCalUId)
     }
 
     func with(hasConflict: Bool) -> Meeting {
@@ -45,7 +51,8 @@ struct Meeting: Identifiable {
                 end: end,
                 joinUrl: joinUrl,
                 responseStatus: responseStatus,
-                hasConflict: hasConflict)
+                hasConflict: hasConflict,
+                iCalUId: iCalUId)
     }
 }
 
