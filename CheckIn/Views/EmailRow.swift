@@ -116,12 +116,13 @@ struct EmailRow: View {
         matchingMeeting?.responseStatus == .notResponded
     }
 
-    /// Date + time on the left, plus a small right-justified
-    /// responded-state pill ("Accepted" / "Tentative" / "Declined")
-    /// when the user has already responded. The time comes from the
-    /// email's own `eventMessage` fields (available for every invite,
-    /// matched or not). The pill comes from `matchingMeeting` and
-    /// only renders when we resolved one with a displayable status.
+    /// Date + time on the left, plus a small right-justified status pill:
+    /// the user's response ("Accepted" / "Tentative" / "Declined") when
+    /// we have a matching event, or "Removed" when the invite has no
+    /// corresponding event in the calendar (declined, deleted, or
+    /// cancelled — we can't tell which from Graph data, so the label
+    /// describes the observable instead of the cause). When the user
+    /// hasn't responded yet, no pill — the RSVP buttons take that space.
     private func meetingInfoRow(start: Date, end: Date) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "calendar")
@@ -131,6 +132,8 @@ struct EmailRow: View {
             Spacer(minLength: 8)
             if let label = matchingMeeting?.responseStatus.displayLabel {
                 respondedPill(label: label)
+            } else if matchingMeeting == nil {
+                respondedPill(label: "Removed")
             }
         }
         .foregroundStyle(Brand.textMuted)

@@ -122,13 +122,18 @@ struct MessagePreviewSheet: View {
                         .padding(.top, 12)
                         .padding(.bottom, 4)
                 case .accepted, .tentativelyAccepted, .declined:
-                    respondedPill(for: meeting)
+                    respondedPill(label: meeting.responseStatus.displayLabel ?? "")
                         .padding(.horizontal, 20)
                         .padding(.top, 12)
                         .padding(.bottom, 4)
                 case .none, .organizer:
                     EmptyView()
                 }
+            } else if inviteData != nil {
+                respondedPill(label: "Removed")
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
             }
             actionBar
                 .padding(.horizontal, 20)
@@ -183,22 +188,21 @@ struct MessagePreviewSheet: View {
         }
     }
 
-    /// Non-interactive status pill shown in place of the RSVP buttons
-    /// when the user has already responded. Mirrors `EmailRow`'s
-    /// responded pill so both surfaces convey the same state.
-    @ViewBuilder
-    private func respondedPill(for meeting: Meeting) -> some View {
-        if let label = meeting.responseStatus.displayLabel {
-            HStack {
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Brand.textMuted)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Brand.bgDarker)
-                    .clipShape(Capsule())
-                Spacer()
-            }
+    /// Non-interactive status pill shown in place of the RSVP buttons.
+    /// Carries either the user's response ("Accepted" / "Tentative" /
+    /// "Declined") or "Removed" when the invite has no corresponding
+    /// event in the calendar. Mirrors `EmailRow`'s responded pill so
+    /// both surfaces convey the same state with the same chrome.
+    private func respondedPill(label: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Brand.textMuted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Brand.bgDarker)
+                .clipShape(Capsule())
+            Spacer()
         }
     }
 
