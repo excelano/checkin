@@ -79,11 +79,6 @@
 			path = CheckIn;
 			sourceTree = "<group>";
 		};
-		6B1B48182FBE7DF900CB1942 /* CheckInTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = CheckInTests;
-			sourceTree = "<group>";
-		};
 		6B78BD952FC15197008CF821 /* CheckInWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -127,7 +122,6 @@
 			children = (
 				6B78BDA92FC1540B008CF821 /* CheckInWidgetExtension.entitlements */,
 				19C6DDC32FAD391B008DDDF0 /* CheckIn */,
-				6B1B48182FBE7DF900CB1942 /* CheckInTests */,
 				6B78BD952FC15197008CF821 /* CheckInWidget */,
 				6B78BD902FC15197008CF821 /* Frameworks */,
 				19C6DDC22FAD391B008DDDF0 /* Products */,
@@ -193,9 +187,6 @@
 			);
 			dependencies = (
 				6B1B481C2FBE7DF900CB1942 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				6B1B48182FBE7DF900CB1942 /* CheckInTests */,
 			);
 			name = CheckInTests;
 			packageProductDependencies = (
