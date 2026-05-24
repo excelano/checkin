@@ -73,30 +73,21 @@ struct ConflictResolutionSheet: View {
         guard trackedIds.isEmpty else { return }
         var ids = [primaryMeetingId]
         if let primary = lookupMeeting(id: primaryMeetingId) {
-            var candidates: [Meeting] = []
-            if let m = inbox.summary?.meeting { candidates.append(m) }
-            candidates.append(contentsOf: inbox.summary?.laterToday ?? [])
-            candidates.append(contentsOf: inbox.inviteMeetings.values)
-            candidates.append(contentsOf: inbox.conflictReferenceMeetings)
-            // De-dup by id — an invite and the calendar event it
-            // refers to share the same Graph event id and would
-            // otherwise produce two rows for the same meeting.
-            var seen: Set<String> = [primary.id]
-            for candidate in candidates {
-                guard !seen.contains(candidate.id) else { continue }
+            // `allKnownMeetings` is already de-duplicated by id at the
+            // store layer (every Meeting lives in `meetingsById` once),
+            // so we only need to drop the primary itself and filter
+            // for actual time overlap.
+            for candidate in inbox.allKnownMeetings {
+                guard candidate.id != primary.id else { continue }
                 guard candidate.start < primary.end, primary.start < candidate.end else { continue }
                 ids.append(candidate.id)
-                seen.insert(candidate.id)
             }
         }
         trackedIds = ids
     }
 
     private func lookupMeeting(id: String) -> Meeting? {
-        if let m = inbox.summary?.meeting, m.id == id { return m }
-        if let m = inbox.summary?.laterToday.first(where: { $0.id == id }) { return m }
-        if let m = inbox.inviteMeetings.values.first(where: { $0.id == id }) { return m }
-        return inbox.conflictReferenceMeetings.first(where: { $0.id == id })
+        inbox.meeting(withId: id)
     }
 }
 

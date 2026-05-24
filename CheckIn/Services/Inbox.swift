@@ -37,20 +37,63 @@ final class Inbox {
     /// with the server. `.unknown` before the first successful fetch,
     /// after sign-out, or when Teams is disabled.
     private(set) var currentPresence: TeamsPresence = .unknown
-    /// Underlying calendar event for each invite email whose meeting is
-    /// outside today's summary window. Keyed by email id. Populated by
-    /// `fetchEmails` (via the `$expand=event` ride-along) and consulted
-    /// by `meetingMatching(_:)` so beyond-today invites get the same
-    /// RSVP-from-the-row UX as today's.
-    private(set) var inviteMeetings: [String: Meeting] = [:]
-    /// Reference-only pool of calendar events spanning the date range
-    /// covered by `inviteMeetings`. Not surfaced as a primary list in
-    /// the UI; used to detect conflicts between a Phase 2 invite and
-    /// a plain calendar event the user already has on their schedule,
-    /// and read by `ConflictResolutionSheet` so the overlapping plain
-    /// meeting shows up as a row. Refreshed alongside the invite
-    /// cache; cleared on sign-out.
-    private(set) var conflictReferenceMeetings: [Meeting] = []
+    // MARK: - Unified meeting store
+    //
+    // Every Meeting CheckIn knows about lives in `meetingsById`. The
+    // three index structures below tell the UI/conflict-detector which
+    // role each meeting plays (today's window, an invite-email
+    // referent, or the future-range reference pool). The `nextMeeting`,
+    // `laterToday`, `inviteMeetings`, and `conflictReferenceMeetings`
+    // accessors are pure computed views — there's no shadow state to
+    // keep in sync.
+    /// Single source of truth for every Meeting value in the session,
+    /// keyed by `Meeting.id`. Reads go through here; writes (RSVP edit,
+    /// delete, refresh) update here.
+    private(set) var meetingsById: [String: Meeting] = [:]
+    /// Today's-window meeting ids, ordered by start time. First entry
+    /// is the "next meeting" highlighted on the summary card; the rest
+    /// are the "Later today" section.
+    private(set) var todayMeetingIds: [String] = []
+    /// Map from an invite email's id to its underlying meeting id.
+    /// Populated by `matchInvitesToCalendar(emails:calendar:)`.
+    private(set) var inviteEmailMeetingIds: [String: String] = [:]
+    /// Meeting ids in the conflict-detection reference pool — events
+    /// from `calendarView` spanning the invite-emails date range.
+    private(set) var referenceMeetingIds: Set<String> = []
+
+    /// The "next meeting" card on the summary view. Computed from the
+    /// first entry of `todayMeetingIds`.
+    var nextMeeting: Meeting? { todayMeetingIds.first.flatMap { meetingsById[$0] } }
+    /// The "Later today" list. Computed from `todayMeetingIds` after
+    /// the next-meeting one.
+    var laterToday: [Meeting] {
+        Array(todayMeetingIds.dropFirst()).compactMap { meetingsById[$0] }
+    }
+
+    /// Every Meeting CheckIn knows about — today's window, invite
+    /// referents, and reference-pool calendar events. Read by
+    /// `ConflictResolutionSheet` to build its candidate list, and by
+    /// the internal conflict detector. The single source of truth.
+    var allKnownMeetings: [Meeting] { Array(meetingsById.values) }
+
+    /// Map from invite email id → its underlying Meeting. Pure
+    /// computed view over the email-id index and the master store.
+    var inviteMeetings: [String: Meeting] {
+        inviteEmailMeetingIds.compactMapValues { meetingsById[$0] }
+    }
+
+    /// Plain-calendar events used for conflict detection against
+    /// invites whose meetings sit outside today's window. Pure
+    /// computed view over the reference-pool index.
+    var conflictReferenceMeetings: [Meeting] {
+        referenceMeetingIds.compactMap { meetingsById[$0] }
+    }
+
+    /// Lookup a Meeting by id across every source. Used by surfaces
+    /// outside Inbox (e.g. `ConflictResolutionSheet`) that need to
+    /// render the primary meeting and each overlapping candidate
+    /// regardless of which bucket they came from.
+    func meeting(withId id: String) -> Meeting? { meetingsById[id] }
 
     private let graphClient: GraphClient
     private let authService: AuthService
@@ -85,8 +128,10 @@ final class Inbox {
         undoExpiryTask?.cancel()
         undoExpiryTask = nil
         currentPresence = .unknown
-        inviteMeetings = [:]
-        conflictReferenceMeetings = []
+        meetingsById = [:]
+        todayMeetingIds = []
+        inviteEmailMeetingIds = [:]
+        referenceMeetingIds = []
         graphClient.clearUser()
     }
 
@@ -125,10 +170,7 @@ final class Inbox {
         showingAllEmails = show
         UserDefaults.standard.set(show, forKey: AppStorageKey.showingAllEmails)
         let result = await fetchEmails()
-        summary?.emails = result.emails
-        summary?.totalUnreadEmails = result.totalCount
-        inviteMeetings = result.inviteMeetings
-        recomputeConflicts()
+        await applyEmailsResult(result)
         if result.failed { lastRefreshFailed = true }
     }
 
@@ -156,14 +198,11 @@ final class Inbox {
         let meetingsResult = await meetingsT
         let emailsResult = await emailsT
         let (chats, chatsFailed) = await chatsT
-        summary = CheckInSummary(meeting: meetingsResult.next,
-                                 laterToday: meetingsResult.laterToday,
-                                 emails: emailsResult.emails,
+        summary = CheckInSummary(emails: emailsResult.emails,
                                  chats: chats,
                                  totalUnreadEmails: emailsResult.totalCount)
-        inviteMeetings = emailsResult.inviteMeetings
-        conflictReferenceMeetings = await fetchConflictReferenceMeetings(for: Array(inviteMeetings.values))
-        recomputeConflicts()
+        loadTodayMeetings(next: meetingsResult.next, laterToday: meetingsResult.laterToday)
+        await rebuildInviteCaches(from: emailsResult.emails)
         let (fetchedPresence, fetchedMessage) = await presenceT
         currentPresence = fetchedPresence
         customStatusMessage = fetchedMessage
@@ -182,12 +221,13 @@ final class Inbox {
     /// they get fresh data.
     private func writeWidgetSnapshot() {
         guard let summary else { return }
+        let next = nextMeeting
         let snapshot = CheckInSnapshot(
             updatedAt: Date(),
-            nextMeetingSubject: summary.meeting?.subject,
-            nextMeetingStart: summary.meeting?.start,
-            nextMeetingOrganizer: summary.meeting?.organizer,
-            nextMeetingJoinUrl: summary.meeting?.joinUrl,
+            nextMeetingSubject: next?.subject,
+            nextMeetingStart: next?.start,
+            nextMeetingOrganizer: next?.organizer,
+            nextMeetingJoinUrl: next?.joinUrl,
             unreadEmailCount: summary.totalUnreadEmails,
             chatCount: summary.chats.count
         )
@@ -244,13 +284,13 @@ final class Inbox {
     /// flipping it off in Settings and refreshing clears any pending alerts.
     private func rescheduleMeetingNotificationsIfEnabled() async {
         let enabled = UserDefaults.standard.bool(forKey: AppStorageKey.meetingNotifications)
-        guard enabled, let s = summary else {
+        guard enabled, summary != nil else {
             await meetingNotifications.clearAll()
             return
         }
         var meetings: [Meeting] = []
-        if let m = s.meeting { meetings.append(m) }
-        meetings.append(contentsOf: s.laterToday)
+        if let m = nextMeeting { meetings.append(m) }
+        meetings.append(contentsOf: laterToday)
         await meetingNotifications.scheduleAll(meetings)
     }
 
@@ -443,22 +483,16 @@ final class Inbox {
             guard !ids.isEmpty else { return }
             _ = try await graphClient.batchMarkUnread(ids: ids)
             let result = await fetchEmails()
-            summary?.emails = result.emails
-            summary?.totalUnreadEmails = result.totalCount
-            inviteMeetings = result.inviteMeetings
-            recomputeConflicts()
+            await applyEmailsResult(result)
             if result.failed { lastRefreshFailed = true }
             await updateAppBadge()
             setPendingUndo(UndoableBulkAction(
                 summary: "Marked \(ids.count) today unread",
                 undo: { [weak self] in
                     _ = try? await self?.graphClient.batchMarkRead(ids: ids)
-                    let r = await self?.fetchEmails()
-                    if let r = r {
-                        self?.summary?.emails = r.emails
-                        self?.summary?.totalUnreadEmails = r.totalCount
-                        self?.inviteMeetings = r.inviteMeetings
-                        self?.recomputeConflicts()
+                    if let self {
+                        let r = await self.fetchEmails()
+                        await self.applyEmailsResult(r)
                     }
                     await self?.updateAppBadge()
                 }
@@ -498,10 +532,7 @@ final class Inbox {
     private func undoMarkRead(ids: [String]) async {
         _ = try? await graphClient.batchMarkUnread(ids: ids)
         let result = await fetchEmails()
-        summary?.emails = result.emails
-        summary?.totalUnreadEmails = result.totalCount
-        inviteMeetings = result.inviteMeetings
-        recomputeConflicts()
+        await applyEmailsResult(result)
         if result.failed { lastRefreshFailed = true }
         await updateAppBadge()
     }
@@ -534,10 +565,7 @@ final class Inbox {
             // looking at a shrunken section that pull-to-refresh would fix.
             if let s = summary, s.totalUnreadEmails > s.emails.count {
                 let result = await fetchEmails()
-                summary?.emails = result.emails
-                summary?.totalUnreadEmails = result.totalCount
-                inviteMeetings = result.inviteMeetings
-                recomputeConflicts()
+                await applyEmailsResult(result)
                 if result.failed { lastRefreshFailed = true }
             }
         } catch {
@@ -788,7 +816,7 @@ final class Inbox {
     /// previously conflicting with it. Operates on either `summary.meeting`
     /// or the matching entry in `summary.laterToday`.
     func respondToMeeting(_ response: MeetingResponse, meetingId: String? = nil) async {
-        let id = meetingId ?? summary?.meeting?.id
+        let id = meetingId ?? nextMeeting?.id
         guard let id, let meeting = meetingWithId(id) else { return }
         let previous = meeting.responseStatus
         setMeeting(meeting.with(responseStatus: response))
@@ -810,33 +838,32 @@ final class Inbox {
     /// conflicts elsewhere.
     func deleteMeeting(meetingId: String) async {
         guard let meeting = meetingWithId(meetingId) else { return }
-        let snapshot = summary
-        let referenceSnapshot = conflictReferenceMeetings
+        let meetingsByIdSnapshot = meetingsById
+        let todayMeetingIdsSnapshot = todayMeetingIds
+        let inviteEmailMeetingIdsSnapshot = inviteEmailMeetingIds
+        let referenceMeetingIdsSnapshot = referenceMeetingIds
 
-        if summary?.meeting?.id == meetingId {
-            if let promoted = summary?.laterToday.first {
-                summary?.meeting = promoted
-                summary?.laterToday.removeFirst()
-            } else {
-                summary?.meeting = nil
-            }
-        } else if let idx = summary?.laterToday.firstIndex(where: { $0.id == meetingId }) {
-            summary?.laterToday.remove(at: idx)
-        } else if let idx = conflictReferenceMeetings.firstIndex(where: { $0.id == meetingId }) {
-            // Beyond-today plain calendar event surfaced via the conflict
-            // resolver. Drop it from the reference pool so the row
-            // disappears and any meeting that was only conflicting
-            // because of it stops showing the warning.
-            conflictReferenceMeetings.remove(at: idx)
+        // Pull the meeting out of every index and the master dict. If
+        // it was today's next meeting, removing its id from the front
+        // of `todayMeetingIds` automatically promotes whatever was
+        // next in line — `nextMeeting` is computed from that list.
+        todayMeetingIds.removeAll { $0 == meetingId }
+        referenceMeetingIds.remove(meetingId)
+        for (emailId, mId) in inviteEmailMeetingIds where mId == meetingId {
+            inviteEmailMeetingIds.removeValue(forKey: emailId)
         }
+        meetingsById.removeValue(forKey: meetingId)
+
         recomputeConflicts()
 
         do {
             try await graphClient.deleteEvent(id: meeting.id)
         } catch {
             logger.error("deleteEvent failed: \(error.localizedDescription, privacy: .public)")
-            summary = snapshot
-            conflictReferenceMeetings = referenceSnapshot
+            meetingsById = meetingsByIdSnapshot
+            todayMeetingIds = todayMeetingIdsSnapshot
+            inviteEmailMeetingIds = inviteEmailMeetingIdsSnapshot
+            referenceMeetingIds = referenceMeetingIdsSnapshot
             recomputeConflicts()
         }
     }
@@ -852,21 +879,8 @@ final class Inbox {
     /// their schedule even when that meeting isn't an invitation.
     private func recomputeConflicts() {
         guard summary != nil else { return }
-        let pool = ([summary?.meeting].compactMap { $0 }
-            + (summary?.laterToday ?? [])
-            + Array(inviteMeetings.values)
-            + conflictReferenceMeetings)
-
-        if let m = summary?.meeting {
-            summary?.meeting = m.with(hasConflict: overlapsAny(m, in: pool))
-        }
-        if var later = summary?.laterToday {
-            for i in later.indices {
-                later[i] = later[i].with(hasConflict: overlapsAny(later[i], in: pool))
-            }
-            summary?.laterToday = later
-        }
-        inviteMeetings = inviteMeetings.mapValues { $0.with(hasConflict: overlapsAny($0, in: pool)) }
+        let pool = Array(meetingsById.values)
+        meetingsById = meetingsById.mapValues { $0.with(hasConflict: overlapsAny($0, in: pool)) }
     }
 
     private func overlapsAny(_ m: Meeting, in all: [Meeting]) -> Bool {
@@ -880,33 +894,39 @@ final class Inbox {
     }
 
     private func meetingWithId(_ id: String) -> Meeting? {
-        if let m = summary?.meeting, m.id == id { return m }
-        if let m = summary?.laterToday.first(where: { $0.id == id }) { return m }
-        if let m = inviteMeetings.values.first(where: { $0.id == id }) { return m }
-        return conflictReferenceMeetings.first(where: { $0.id == id })
+        meetingsById[id]
     }
 
     private func setMeeting(_ meeting: Meeting) {
-        if summary?.meeting?.id == meeting.id {
-            summary?.meeting = meeting
-            return
+        meetingsById[meeting.id] = meeting
+    }
+
+    /// Replace the today-window index and seed each Meeting into
+    /// `meetingsById`. Called from `refresh()` after the calendar fetch
+    /// returns. Old `summary.meeting` + `summary.laterToday` are still
+    /// assigned alongside during the migration.
+    private func loadTodayMeetings(next: Meeting?, laterToday: [Meeting]) {
+        // Drop the previous today-window members from the master store
+        // first, so a meeting that disappeared from the calendar
+        // (declined/cancelled/deleted) doesn't linger.
+        for id in todayMeetingIds {
+            // Only drop ids that aren't ALSO referenced by another
+            // index — a today meeting that's also an invite-email
+            // referent should survive until its other index drops it.
+            if !inviteEmailMeetingIds.values.contains(id) && !referenceMeetingIds.contains(id) {
+                meetingsById.removeValue(forKey: id)
+            }
         }
-        if let idx = summary?.laterToday.firstIndex(where: { $0.id == meeting.id }) {
-            summary?.laterToday[idx] = meeting
-            return
+        var ids: [String] = []
+        if let next {
+            meetingsById[next.id] = next
+            ids.append(next.id)
         }
-        // Phase-2 cache: an RSVP success from an invite-email row for a
-        // meeting outside today's window. Update the cached entry so
-        // the email row's responded pill shows up immediately.
-        for (emailId, cached) in inviteMeetings where cached.id == meeting.id {
-            inviteMeetings[emailId] = meeting
+        for m in laterToday {
+            meetingsById[m.id] = m
+            ids.append(m.id)
         }
-        // Reference pool: an RSVP/edit on a plain calendar event from
-        // the conflict resolver. Update so the resolver row reflects
-        // the new state right away.
-        if let idx = conflictReferenceMeetings.firstIndex(where: { $0.id == meeting.id }) {
-            conflictReferenceMeetings[idx] = meeting
-        }
+        todayMeetingIds = ids
     }
 
     /// Find invitation/update/cancellation emails for this meeting and
@@ -935,61 +955,17 @@ final class Inbox {
     /// `$expand=event` ride-along on `unreadEmails` and covers invites
     /// for meetings beyond today's calendar window.
     func meetingMatching(_ email: Email) -> Meeting? {
-        let emailKey = email.subject.normalizedSubjectKey
-        guard !emailKey.isEmpty else { return nil }
-
-        var meetings: [Meeting] = []
-        if let m = summary?.meeting { meetings.append(m) }
-        meetings.append(contentsOf: summary?.laterToday ?? [])
-
-        for meeting in meetings {
-            let target = meeting.subject.normalizedSubjectKey
-            guard !target.isEmpty else { continue }
-            if emailKey == target
-                || emailKey == "updated: \(target)"
-                || emailKey == "cancelled: \(target)" {
-                return meeting
-            }
-            // Two-factor contains-match (organizer + meetingMessageType)
-            // mirrors the forward direction so the same edge cases
-            // (tenant-specific "Meeting request:" / "Invitation:"
-            // prefixes) work in both directions.
-            if let organizer = meeting.organizerEmail?
-                .lowercased()
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !organizer.isEmpty,
-               email.fromAddress.lowercased() == organizer,
-               email.meetingMessageType != nil,
-               emailKey.contains(target) {
-                return meeting
-            }
-        }
-        return inviteMeetings[email.id]
+        var todays: [Meeting] = []
+        if let m = nextMeeting { todays.append(m) }
+        todays.append(contentsOf: laterToday)
+        if let match = todays.first(where: { $0.matches(email) }) { return match }
+        if let meetingId = inviteEmailMeetingIds[email.id] { return meetingsById[meetingId] }
+        return nil
     }
 
     private func markMatchingInviteEmailsRead(for meeting: Meeting) async {
-        let target = meeting.subject.normalizedSubjectKey
-        guard !target.isEmpty else { return }
-        let organizerEmail = meeting.organizerEmail?
-            .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
         let matchIds = (summary?.emails ?? [])
-            .filter { e in
-                let key = e.subject.normalizedSubjectKey
-                if key == target
-                    || key == "updated: \(target)"
-                    || key == "cancelled: \(target)" {
-                    return true
-                }
-                if let organizerEmail, !organizerEmail.isEmpty,
-                   e.fromAddress.lowercased() == organizerEmail,
-                   e.meetingMessageType != nil,
-                   key.contains(target) {
-                    return true
-                }
-                return false
-            }
+            .filter { meeting.matches($0) }
             .map(\.id)
         for id in matchIds {
             await markRead(emailId: id)
@@ -1026,15 +1002,18 @@ final class Inbox {
     }
 
     /// Best-effort. Fetch calendar events overlapping the date range
-    /// spanned by the supplied invites, so conflict detection can
-    /// include plain calendar events the user already has on their
-    /// schedule. Returns an empty pool on failure (no banner; this is
-    /// purely a UX enhancement on top of the visible surfaces).
-    /// Skipped when there are no invites.
-    private func fetchConflictReferenceMeetings(for invites: [Meeting]) async -> [Meeting] {
-        guard !invites.isEmpty,
-              let earliest = invites.map(\.start).min(),
-              let latest = invites.map(\.end).max() else { return [] }
+    /// spanned by the supplied invite emails (their `meetingStart` /
+    /// `meetingEnd` are read straight off Graph's eventMessage subtype).
+    /// Doubles as both the conflict-detection reference pool and the
+    /// source of truth for matching invite emails to their underlying
+    /// event — `$expand=event` returns empty stubs for future
+    /// invitations, so we sidestep it. Returns an empty pool on failure
+    /// (no banner; UX enhancement only). Skipped when there are no
+    /// invites with dates.
+    private func fetchConflictReferenceMeetings(for inviteEmails: [Email]) async -> [Meeting] {
+        let starts = inviteEmails.compactMap(\.meetingStart)
+        let ends = inviteEmails.compactMap(\.meetingEnd)
+        guard let earliest = starts.min(), let latest = ends.max() else { return [] }
         do {
             return try await graphClient.eventsInRange(start: earliest, end: latest)
         } catch {
@@ -1043,23 +1022,105 @@ final class Inbox {
         }
     }
 
-    private func fetchEmails() async -> (emails: [Email], totalCount: Int, inviteMeetings: [String: Meeting], failed: Bool) {
+    /// Match `meetingRequest` invite emails to their underlying event in
+    /// `calendar` so the email row can surface meeting time / RSVP /
+    /// conflict. Match key is normalized subject + start time within a
+    /// minute — subject alone is ambiguous when multiple meetings share a
+    /// title, but `meetingStart` from the eventMessage and `start` from
+    /// the calendar event come from the same source-of-truth and should
+    /// be exact. Returns a map keyed by email id; emails with no
+    /// matching event simply don't appear (the row falls back to
+    /// regular-email rendering).
+    /// Resolve each `meetingRequest` invite email to a Meeting so the
+    /// row can surface meeting time / RSVP / conflict. Prefers an event
+    /// already on the user's calendar (matched by normalized subject +
+    /// start time within a minute) because that carries `responseStatus`
+    /// alongside the event id. Falls back to a Graph fetch
+    /// (`fetchInviteEventId`) for invites whose underlying event hasn't
+    /// landed on the calendar yet — necessary because tenants that
+    /// don't auto-tentative invitations leave un-responded invites off
+    /// the calendar entirely. Either way, the Meeting carries the real
+    /// event id, so RSVP everywhere routes through a single Graph call.
+    /// Invites whose event id can't be resolved are skipped — the row
+    /// falls back to plain-email rendering rather than a broken-RSVP UI.
+    private func matchInvitesToCalendar(emails: [Email], calendar: [Meeting]) async -> [String: Meeting] {
+        var result: [String: Meeting] = [:]
+        for email in emails where email.isInvite {
+            if let match = calendar.first(where: { $0.matches(email) }) {
+                result[email.id] = match
+                continue
+            }
+            guard let start = email.meetingStart, let end = email.meetingEnd else { continue }
+            guard let eventId = await graphClient.fetchInviteEventId(messageId: email.id) else { continue }
+            result[email.id] = Meeting(
+                id: eventId,
+                subject: email.subject,
+                organizer: email.from,
+                organizerEmail: email.fromAddress.isEmpty ? nil : email.fromAddress,
+                start: start,
+                end: end,
+                joinUrl: nil,
+                responseStatus: .notResponded,
+                hasConflict: false
+            )
+        }
+        return result
+    }
+
+    private func fetchEmails() async -> (emails: [Email], totalCount: Int, failed: Bool) {
         do {
             let r = try await graphClient.unreadEmails(top: emailTop)
-            // Best-effort second pass: pull the underlying event for
-            // each meetingRequest email so we can surface RSVP buttons
-            // and meeting time/conflict on the row. Separate from the
-            // email fetch because Graph rejects `$expand` alongside
-            // the advanced-query trio the email query needs.
-            let inviteIds = r.emails
-                .filter { $0.meetingMessageType == "meetingRequest" }
-                .map(\.id)
-            let inviteMeetings = await graphClient.fetchInviteEvents(messageIds: inviteIds)
-            return (r.emails, r.totalCount, inviteMeetings, false)
+            return (r.emails, r.totalCount, false)
         } catch {
             logger.error("unreadEmails failed: \(error.localizedDescription, privacy: .public)")
-            return ([], 0, [:], true)
+            return ([], 0, true)
         }
+    }
+
+    /// Apply a fresh `fetchEmails` result to `summary.emails` and rebuild
+    /// the derived invite caches (`conflictReferenceMeetings` first, then
+    /// `inviteMeetings` matched off it). Every code path that retouches
+    /// `summary.emails` calls this so the invite-row UI and conflict pool
+    /// stay coherent — otherwise mark-read/unread can leave stale invite
+    /// state pointing at events that are no longer in the unread window.
+    private func applyEmailsResult(_ result: (emails: [Email], totalCount: Int, failed: Bool)) async {
+        summary?.emails = result.emails
+        summary?.totalUnreadEmails = result.totalCount
+        await rebuildInviteCaches(from: result.emails)
+    }
+
+    /// Rebuild `conflictReferenceMeetings` + `inviteMeetings` from the
+    /// given email list and recompute conflict flags. Caller is
+    /// responsible for assigning `summary.emails` first if needed.
+    /// Used by both `refresh()` (after constructing a fresh summary)
+    /// and `applyEmailsResult` (after a mid-session email refresh).
+    private func rebuildInviteCaches(from emails: [Email]) async {
+        let inviteEmails = emails.filter(\.isInvite)
+        let referenceMeetings = await fetchConflictReferenceMeetings(for: inviteEmails)
+        let matchedInvites = await matchInvitesToCalendar(emails: emails, calendar: referenceMeetings)
+
+        // Drop any previous invite/reference members from the master
+        // store that aren't in today's window and aren't in the new
+        // sets — otherwise stale meetings linger.
+        let keepTodayIds = Set(todayMeetingIds)
+        for id in inviteEmailMeetingIds.values where !keepTodayIds.contains(id) {
+            meetingsById.removeValue(forKey: id)
+        }
+        for id in referenceMeetingIds where !keepTodayIds.contains(id) {
+            meetingsById.removeValue(forKey: id)
+        }
+        inviteEmailMeetingIds.removeAll(keepingCapacity: true)
+        referenceMeetingIds.removeAll(keepingCapacity: true)
+        for (emailId, m) in matchedInvites {
+            meetingsById[m.id] = m
+            inviteEmailMeetingIds[emailId] = m.id
+        }
+        for m in referenceMeetings {
+            meetingsById[m.id] = m
+            referenceMeetingIds.insert(m.id)
+        }
+
+        recomputeConflicts()
     }
 
     /// Captured by `setPendingUndo`; rendered by `SummaryView` as the

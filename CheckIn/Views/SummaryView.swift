@@ -162,7 +162,7 @@ struct SummaryView: View {
             acc[key, default: 0] += 1
         }
         return List {
-            if let meeting = summary.meeting {
+            if let meeting = inbox.nextMeeting {
                 Section {
                     MeetingCard(meeting: meeting,
                                 onTap: { joinOrCalendar(meeting) },
@@ -178,9 +178,9 @@ struct SummaryView: View {
                         }
                 }
             }
-            if !summary.laterToday.isEmpty {
+            if !inbox.laterToday.isEmpty {
                 Section {
-                    ForEach(summary.laterToday) { meeting in
+                    ForEach(inbox.laterToday) { meeting in
                         LaterMeetingRow(meeting: meeting,
                                         onTap: { joinOrCalendar(meeting) },
                                         onConflictTap: { conflictTarget = meeting })
@@ -192,7 +192,7 @@ struct SummaryView: View {
                             }
                     }
                 } header: {
-                    sectionHeader(title: "Later today", count: summary.laterToday.count)
+                    sectionHeader(title: "Later today", count: inbox.laterToday.count)
                 }
             }
             Section {
@@ -299,9 +299,7 @@ struct SummaryView: View {
                         let subjectCount = subjectCounts[email.subject.normalizedSubjectKey, default: 0]
                         // Look up the meeting only for actionable invites —
                         // skips the search for the common non-invite case.
-                        let matchingMeeting = email.meetingMessageType == "meetingRequest"
-                            ? inbox.meetingMatching(email)
-                            : nil
+                        let matchingMeeting = email.isInvite ? inbox.meetingMatching(email) : nil
                         EmailRow(
                             email: email,
                             matchingMeeting: matchingMeeting,

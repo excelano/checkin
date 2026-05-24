@@ -63,11 +63,17 @@ struct EmailRow: View {
             .accessibilityHint("Preview message")
             .accessibilityAddTraits(.isButton)
 
-            if let meeting = matchingMeeting {
-                meetingInfoRow(for: meeting)
+            // Invitation chrome is driven by `email.isInvite` — the
+            // single source of truth for "is this an invitation".
+            // Email metadata (start/end via eventMessage cast) is
+            // always there for invites; the optional `matchingMeeting`
+            // only contributes the responded pill, the RSVP buttons,
+            // and the conflict-triangle on the subject line.
+            if email.isInvite, let start = email.meetingStart, let end = email.meetingEnd {
+                meetingInfoRow(start: start, end: end)
                     .padding(.horizontal, 14)
-                    .padding(.bottom, meeting.responseStatus == .notResponded ? 12 : 14)
-                if meeting.responseStatus == .notResponded {
+                    .padding(.bottom, showsRsvp ? 12 : 14)
+                if showsRsvp {
                     rsvpRow
                         .padding(.horizontal, 14)
                         .padding(.bottom, 14)
@@ -102,19 +108,28 @@ struct EmailRow: View {
         }
     }
 
+    /// True when we have a matching meeting AND the user hasn't
+    /// responded yet. RSVP buttons are pure action UI — they require
+    /// a real event id to act on, so we only show them when the
+    /// matcher resolved one.
+    private var showsRsvp: Bool {
+        matchingMeeting?.responseStatus == .notResponded
+    }
+
     /// Date + time on the left, plus a small right-justified
     /// responded-state pill ("Accepted" / "Tentative" / "Declined")
-    /// when the user has already responded. The conflict triangle
-    /// lives on the subject line above; the responded pill sits
-    /// directly under it, vertically aligned with the right edge.
-    private func meetingInfoRow(for meeting: Meeting) -> some View {
+    /// when the user has already responded. The time comes from the
+    /// email's own `eventMessage` fields (available for every invite,
+    /// matched or not). The pill comes from `matchingMeeting` and
+    /// only renders when we resolved one with a displayable status.
+    private func meetingInfoRow(start: Date, end: Date) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "calendar")
                 .font(.footnote)
-            Text(formatMeetingTime(meeting.start, end: meeting.end))
+            Text(formatMeetingTime(start, end: end))
                 .font(.footnote)
             Spacer(minLength: 8)
-            if let label = meeting.responseStatus.displayLabel {
+            if let label = matchingMeeting?.responseStatus.displayLabel {
                 respondedPill(label: label)
             }
         }
@@ -157,7 +172,7 @@ struct EmailRow: View {
 
     private var accessibilityLabel: String {
         let flagPrefix = email.isFlagged ? "Flagged email" : "Email"
-        let invitePrefix = matchingMeeting != nil ? "Meeting invitation" : flagPrefix
+        let invitePrefix = email.isInvite ? "Meeting invitation" : flagPrefix
         return "\(invitePrefix) from \(email.from): \(email.subject)"
     }
 }

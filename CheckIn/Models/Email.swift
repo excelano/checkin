@@ -26,6 +26,15 @@ struct Email: Identifiable {
     /// messages. Values include `meetingRequest`, `meetingCancelled`,
     /// `meetingAccepted`, `meetingTentativelyAccepted`, `meetingDeclined`.
     let meetingMessageType: String?
+    /// Start of the referenced meeting, read from `eventMessage.startDateTime`
+    /// in the list query. Used to match invite emails to their underlying
+    /// calendar event (Graph's `$expand=event` returns empty stubs for
+    /// future invitations, so we sidestep it and match on subject + start).
+    /// Nil on non-meeting messages and on the rare invite where Graph
+    /// omits the field.
+    let meetingStart: Date?
+    /// End of the referenced meeting. Same provenance as `meetingStart`.
+    let meetingEnd: Date?
     /// True when the message has an RFC 2369 `List-Unsubscribe` header —
     /// the standard signal that a message came from a mailing list.
     /// Derived in GraphClient from `internetMessageHeaders`.
@@ -40,6 +49,8 @@ struct Email: Identifiable {
          isFlagged: Bool = false,
          inferenceClassification: String? = nil,
          meetingMessageType: String? = nil,
+         meetingStart: Date? = nil,
+         meetingEnd: Date? = nil,
          isMailingList: Bool = false) {
         self.id = id
         self.subject = subject
@@ -50,6 +61,8 @@ struct Email: Identifiable {
         self.isFlagged = isFlagged
         self.inferenceClassification = inferenceClassification
         self.meetingMessageType = meetingMessageType
+        self.meetingStart = meetingStart
+        self.meetingEnd = meetingEnd
         self.isMailingList = isMailingList
     }
 
@@ -59,6 +72,8 @@ struct Email: Identifiable {
               received: received, isFlagged: isFlagged,
               inferenceClassification: inferenceClassification,
               meetingMessageType: meetingMessageType,
+              meetingStart: meetingStart,
+              meetingEnd: meetingEnd,
               isMailingList: isMailingList)
     }
 }
@@ -80,5 +95,13 @@ extension Email {
     var isMeetingNotice: Bool {
         guard let type = meetingMessageType else { return false }
         return Self.meetingNoticeMessageTypes.contains(type)
+    }
+
+    /// True when this email is an original meeting invitation
+    /// (excludes updates and cancellations — those are
+    /// `isMeetingNotice`). Gate for invite-row RSVP UI and for the
+    /// invite-to-calendar matcher.
+    var isInvite: Bool {
+        meetingMessageType == "meetingRequest"
     }
 }

@@ -276,16 +276,41 @@ final class GraphClient {
         try await post("/me/events/\(id)/\(action)", body: RsvpBody(sendResponse: true))
     }
 
+    /// Resolve the underlying event id for an invite email when the
+    /// event isn't on the user's calendar yet (tenants that don't
+    /// auto-tentative invitations). Uses `$expand=event` without an
+    /// inner `$select` — Graph returns empty-stub events when a strict
+    /// `$select` is applied to a not-yet-tentatived invitation, but
+    /// the default field set sometimes contains the id. Returns nil on
+    /// any failure or when Graph hands back no id; caller treats nil
+    /// as "no RSVP UI for this invite".
+    func fetchInviteEventId(messageId: String) async -> String? {
+        do {
+            let response: MessageEventIdResponse = try await get(
+                "/me/messages/\(messageId)",
+                query: ["$expand": "microsoft.graph.eventMessage/event"]
+            )
+            return response.event?.id
+        } catch {
+            Logger(subsystem: "com.excelano.checkin", category: "graph")
+                .error("fetchInviteEventId failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     /// Returns the newest unread emails (up to `top`, default 20) along
     /// with the total unread count. `$count=true` requires the
     /// `ConsistencyLevel: eventual` header. The
-    /// `microsoft.graph.eventMessage/meetingMessageType` cast fetches the
-    /// meeting-subtype field for invite/response messages without changing
-    /// the base collection type. `$expand` is intentionally NOT used —
+    /// `microsoft.graph.eventMessage/*` casts pull subtype fields for
+    /// invite/response messages — `meetingMessageType` distinguishes them
+    /// and `startDateTime`/`endDateTime` provide the meeting time without
+    /// needing a second fetch. `$expand=event` is intentionally avoided:
     /// Graph rejects it in combination with the advanced-query trio
-    /// (`$filter` + `$count` + `ConsistencyLevel: eventual`). Underlying
-    /// events for invite messages are fetched separately via
-    /// `fetchInviteEvents(messageIds:)`.
+    /// (`$filter` + `$count` + `ConsistencyLevel: eventual`), and even
+    /// in a single-resource GET it returns empty-stub events for
+    /// future-dated invitations (observed via diagnostic). Matching the
+    /// resulting `meetingStart` against `calendarView` recovers the real
+    /// event id.
     func unreadEmails(top: Int = 20) async throws -> (emails: [Email], totalCount: Int) {
         let data: GraphList<EmailResponse> = try await get(
             "/me/mailFolders/inbox/messages",
@@ -294,7 +319,7 @@ final class GraphClient {
                 "$orderby": "receivedDateTime desc",
                 "$top": "\(top)",
                 "$count": "true",
-                "$select": "id,subject,from,bodyPreview,receivedDateTime,flag,inferenceClassification,internetMessageHeaders,microsoft.graph.eventMessage/meetingMessageType"
+                "$select": "id,subject,from,bodyPreview,receivedDateTime,flag,inferenceClassification,internetMessageHeaders,microsoft.graph.eventMessage/meetingMessageType,microsoft.graph.eventMessage/startDateTime,microsoft.graph.eventMessage/endDateTime"
             ],
             headers: ["ConsistencyLevel": "eventual"]
         )
@@ -303,6 +328,8 @@ final class GraphClient {
             let isMailingList = (e.internetMessageHeaders ?? []).contains { h in
                 h.name.caseInsensitiveCompare("List-Unsubscribe") == .orderedSame
             }
+            let meetingStart = e.startDateTime.map { parseGraphDate($0.dateTime, timeZone: $0.timeZone) }
+            let meetingEnd = e.endDateTime.map { parseGraphDate($0.dateTime, timeZone: $0.timeZone) }
             return Email(
                 id: e.id,
                 subject: e.subject,
@@ -313,69 +340,12 @@ final class GraphClient {
                 isFlagged: e.flag?.flagStatus == "flagged",
                 inferenceClassification: e.inferenceClassification,
                 meetingMessageType: e.meetingMessageType,
+                meetingStart: meetingStart,
+                meetingEnd: meetingEnd,
                 isMailingList: isMailingList
             )
         }
         return (emails, data.count ?? emails.count)
-    }
-
-    /// Fetch the underlying calendar event for each invite-message id
-    /// (Graph's `microsoft.graph.eventMessage/event` navigation
-    /// property). Each fetch is concurrent; failures on individual
-    /// messages are swallowed (best-effort) so a single bad cast can't
-    /// kill the whole batch. Returns a map keyed by message id.
-    /// `hasConflict` is initialized false here — the caller is
-    /// expected to recompute it against the today-window pool.
-    func fetchInviteEvents(messageIds: [String]) async -> [String: Meeting] {
-        guard !messageIds.isEmpty else { return [:] }
-        var result: [String: Meeting] = [:]
-        // Chunk at 20 — Graph's per-batch sub-request cap. A single
-        // `$batch` is one HTTP request, so per-mailbox concurrency
-        // throttling doesn't fire even with multiple invites in flight.
-        for chunk in messageIds.batched(by: 20) {
-            let requests = chunk.enumerated().map { (i, id) in
-                BatchGetRequest(
-                    id: "\(i)",
-                    url: "/me/messages/\(id)?$select=id&$expand=microsoft.graph.eventMessage/event($select=id,subject,organizer,start,end,onlineMeeting,responseStatus)"
-                )
-            }
-            do {
-                let response: BatchGetResponse<MessageEventExpansionResponse> = try await postDecoded(
-                    "/$batch",
-                    body: BatchGetEnvelope(requests: requests)
-                )
-                for item in response.responses {
-                    guard let idx = Int(item.id), idx < chunk.count,
-                          let event = item.body?.event,
-                          let eventId = event.id,
-                          let subject = event.subject,
-                          let organizer = event.organizer,
-                          let start = event.start,
-                          let end = event.end else { continue }
-                    let messageId = chunk[idx]
-                    let responseStatus = MeetingResponse(rawValue: event.responseStatus?.response ?? "") ?? .none
-                    result[messageId] = Meeting(
-                        id: eventId,
-                        subject: subject,
-                        organizer: organizer.emailAddress.name,
-                        organizerEmail: organizer.emailAddress.address,
-                        start: parseGraphDate(start.dateTime, timeZone: start.timeZone),
-                        end: parseGraphDate(end.dateTime, timeZone: end.timeZone),
-                        joinUrl: event.onlineMeeting?.joinUrl,
-                        responseStatus: responseStatus,
-                        hasConflict: false
-                    )
-                }
-            } catch {
-                // Best-effort — log the error so a misconfigured request
-                // is visible without bringing down the rest of the
-                // refresh. The outer summary still renders; just no
-                // RSVP buttons on the affected invites.
-                Logger(subsystem: "com.excelano.checkin", category: "graph")
-                    .error("fetchInviteEvents batch failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-        return result
     }
 
     /// Mail.ReadWrite required. Idempotent.

@@ -49,6 +49,59 @@ struct Meeting: Identifiable {
     }
 }
 
+extension Meeting {
+    /// True when `email` refers to this meeting. Canonical predicate
+    /// used everywhere that has to bridge email ↔ meeting (the row's
+    /// invitation lookup, the invite-cache builder, the post-RSVP
+    /// auto-mark-read). Combining the matching here keeps the three
+    /// surfaces from drifting — earlier versions had three near-copies
+    /// that disagreed on whether to use start-time or organizer-fallback
+    /// matching.
+    ///
+    /// Two-tier match:
+    /// 1. Normalized subject equality, also accepting the "Updated:"
+    ///    and "Cancelled:" prefixes Outlook applies to meeting-update
+    ///    and meeting-cancellation emails.
+    /// 2. Two-factor fallback for tenant-specific subject prefixes
+    ///    (e.g. "Meeting request:", "Invitation:") — requires the
+    ///    email is a meetingMessage from the meeting's organizer, then
+    ///    accepts a `contains` match on the normalized subjects.
+    ///
+    /// When the email carries a start time (invitations do, via
+    /// `eventMessage.startDateTime`), the times must agree within a
+    /// minute. This disambiguates same-titled recurring meetings — a
+    /// "Status update" invitation for next Monday won't be matched
+    /// against an instance of the same series on today's calendar.
+    func matches(_ email: Email) -> Bool {
+        let target = subject.normalizedSubjectKey
+        let key = email.subject.normalizedSubjectKey
+        guard !target.isEmpty, !key.isEmpty else { return false }
+
+        let subjectMatch: Bool
+        if key == target
+            || key == "updated: \(target)"
+            || key == "cancelled: \(target)" {
+            subjectMatch = true
+        } else if let organizer = organizerEmail?
+                    .lowercased()
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !organizer.isEmpty,
+                  email.fromAddress.lowercased() == organizer,
+                  email.meetingMessageType != nil,
+                  key.contains(target) {
+            subjectMatch = true
+        } else {
+            subjectMatch = false
+        }
+        guard subjectMatch else { return false }
+
+        if let emailStart = email.meetingStart {
+            return abs(start.timeIntervalSince(emailStart)) < 60
+        }
+        return true
+    }
+}
+
 /// Mirrors Graph's `responseStatus.response` values verbatim.
 enum MeetingResponse: String, Codable {
     case none

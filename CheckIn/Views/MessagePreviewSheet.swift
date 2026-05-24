@@ -98,8 +98,13 @@ struct MessagePreviewSheet: View {
             Divider().overlay(Brand.bgDarker)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if let meeting = matchingMeeting {
-                        meetingInfoRow(for: meeting)
+                    // Invitation chrome (calendar icon + time) is driven
+                    // by the email — `isInvite` is the canonical source
+                    // of truth. The conflict-triangle row inside hides
+                    // itself when `matchingMeeting` is nil or has no
+                    // conflict.
+                    if let invite = inviteData {
+                        meetingInfoRow(start: invite.start, end: invite.end)
                     }
                     bodyText
                 }
@@ -131,20 +136,35 @@ struct MessagePreviewSheet: View {
         }
     }
 
+    /// Tuple capturing the data we need to render the invitation
+    /// chrome from the email itself: start/end always come from the
+    /// `eventMessage` cast fields, so they're available on every
+    /// invite — not gated on having a matching Meeting.
+    private var inviteData: (start: Date, end: Date)? {
+        guard case .email(let email) = target.kind,
+              email.isInvite,
+              let start = email.meetingStart,
+              let end = email.meetingEnd else { return nil }
+        return (start, end)
+    }
+
     /// Date + time on its own line, conflict warning (when applicable)
     /// on a separate line below in orange and tappable to open the
     /// conflict resolver — same flow as the calendar card's button.
+    /// Time comes from the email's own `eventMessage` fields; the
+    /// conflict line requires `matchingMeeting` (only meetings the
+    /// matcher resolved carry overlap info).
     @ViewBuilder
-    private func meetingInfoRow(for meeting: Meeting) -> some View {
+    private func meetingInfoRow(start: Date, end: Date) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
                     .font(.footnote)
-                Text(formatMeetingTime(meeting.start, end: meeting.end))
+                Text(formatMeetingTime(start, end: end))
                     .font(.footnote)
             }
             .foregroundStyle(Brand.textMuted)
-            if meeting.hasConflict {
+            if let meeting = matchingMeeting, meeting.hasConflict {
                 Button {
                     conflictTarget = meeting
                 } label: {
@@ -218,8 +238,7 @@ struct MessagePreviewSheet: View {
     /// the summary refreshes. Only set for actionable invites whose
     /// underlying meeting is in today's summary window.
     private var matchingMeeting: Meeting? {
-        guard case .email(let email) = target.kind,
-              email.meetingMessageType == "meetingRequest" else { return nil }
+        guard case .email(let email) = target.kind, email.isInvite else { return nil }
         return inbox.meetingMatching(email)
     }
 
@@ -278,7 +297,7 @@ struct MessagePreviewSheet: View {
                     // For invites with empty bodies (the common case)
                     // the meeting info row above is the actual content
                     // — skip the placeholder so the sheet stays tight.
-                    if matchingMeeting == nil {
+                    if inviteData == nil {
                         Text("(no message body)")
                             .font(.body)
                             .foregroundStyle(Brand.textMuted)
