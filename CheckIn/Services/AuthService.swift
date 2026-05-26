@@ -114,28 +114,57 @@ final class AuthService {
         }
     }
 
-    /// True when the MSAL NSError indicates an admin-consent gap. Matches
-    /// on AADSTS codes most strongly tied to consent-required failures and
-    /// on the literal word "admin" in the description. Conservative — a
-    /// user-cancelled consent (`MSALError.userCanceled` /
-    /// `access_denied`) is a different domain code and doesn't trip this.
+    /// True when the MSAL NSError indicates a tenant-side block on
+    /// sign-in (admin consent gap, conditional access denial, tenant
+    /// policy). Two signals:
+    ///
+    /// 1. AADSTS code or the word "admin" in `localizedDescription` —
+    ///    fires when MSAL preserved the AAD error description.
+    /// 2. `MSALOAuthErrorKey == "access_denied"` in `userInfo` — fires
+    ///    when MSAL collapses the server denial into the generic
+    ///    `MSALErrorUserCanceled` (-50005) without preserving the
+    ///    AADSTS string. A user-initiated Cancel from the web view
+    ///    also lands on UserCanceled but does NOT set the OAuth error
+    ///    key, so this discriminator is safe.
     private static func isAdminConsentRequired(_ error: NSError) -> Bool {
         guard error.domain == MSALErrorDomain else { return false }
         let description = error.localizedDescription.lowercased()
-        return description.contains("aadsts65001")
+        if description.contains("aadsts65001")
             || description.contains("aadsts90094")
             || description.contains("admin consent")
-            || description.contains("admin approval")
+            || description.contains("admin approval") {
+            return true
+        }
+        if let oauthError = error.userInfo["MSALOAuthErrorKey"] as? String,
+           oauthError.caseInsensitiveCompare("access_denied") == .orderedSame {
+            return true
+        }
+        return false
     }
 
-    /// Pull the first `AADSTS\d+` token out of MSAL's error description so
-    /// SignInView can surface it under the curated message. Nil when no
-    /// such code is present (the consent block was detected by phrase
-    /// match rather than code match).
+    /// Pull a diagnostic string out of the MSAL error for SignInView to
+    /// surface under the curated message. Prefers the AADSTS code when
+    /// MSAL bubbled it up; otherwise falls back to the OAuth error name
+    /// plus correlation ID, which is what IT support actually searches
+    /// on in Entra sign-in logs. Nil only when none of those signals
+    /// are present.
     private static func adminConsentCode(_ error: NSError) -> String? {
         let description = error.localizedDescription
-        guard let match = description.range(of: #"AADSTS\d+"#, options: .regularExpression) else { return nil }
-        return String(description[match])
+        if let match = description.range(of: #"AADSTS\d+"#, options: .regularExpression) {
+            return String(description[match])
+        }
+        let oauthError = error.userInfo["MSALOAuthErrorKey"] as? String
+        let correlationID = error.userInfo["MSALCorrelationIDKey"] as? String
+        switch (oauthError, correlationID) {
+        case let (oauth?, cid?):
+            return "\(oauth) · correlation ID \(cid)"
+        case let (oauth?, nil):
+            return oauth
+        case let (nil, cid?):
+            return "correlation ID \(cid)"
+        case (nil, nil):
+            return nil
+        }
     }
 
     func acquireTokenSilently(enableTeams: Bool) async throws -> String {
@@ -193,11 +222,13 @@ enum AuthError: LocalizedError {
             return "No signed-in account. Please sign in first."
         case .adminConsentRequired(let code):
             var message =
-                "Your organization requires an administrator to approve CheckIn before you can sign in. " +
-                "This is normal and not a problem with the app.\n\n" +
+                "Your organization's Microsoft 365 settings blocked the sign-in. " +
+                "This usually means an administrator needs to approve CheckIn before you can use it, " +
+                "and it's not a problem with the app or your account.\n\n" +
                 "For an email you can forward to your IT team, see [excelano.com/checkin](https://excelano.com/checkin/#admin-approval)."
             if let code {
-                message += "\n\nError code: \(code)"
+                let label = code.hasPrefix("AADSTS") ? "Error code" : "Reference"
+                message += "\n\n\(label): \(code)"
             }
             return message
         }
