@@ -195,7 +195,7 @@ enum AuthError: LocalizedError {
             var message =
                 "Your organization requires an administrator to approve CheckIn before you can sign in. " +
                 "This is normal and not a problem with the app.\n\n" +
-                "For an email you can forward to your IT team, see [excelano.com/checkin](https://excelano.com/checkin/)."
+                "For an email you can forward to your IT team, see [excelano.com/checkin](https://excelano.com/checkin/#admin-approval)."
             if let code {
                 message += "\n\nError code: \(code)"
             }
