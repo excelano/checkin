@@ -8,7 +8,7 @@ import Foundation
 enum Constants {
     static let clientID = "0ce3820d-db53-4b2e-9621-6c4ccc086d5a"
 
-    static let authority = "https://login.microsoftonline.com/common"
+    static let authority = "https://login.microsoftonline.com/organizations"
     static let redirectURI = "msauth.com.excelano.checkin://auth"
     static let graphBaseURL = "https://graph.microsoft.com/v1.0"
 
