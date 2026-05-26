@@ -83,9 +83,10 @@ private struct SignInView: View {
                 }
                 .disabled(isSigningIn)
                 if let errorMessage {
-                    Text(errorMessage)
+                    Text(.init(errorMessage))
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.red)
+                        .tint(Brand.accent)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 }

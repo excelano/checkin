@@ -103,12 +103,14 @@ final class AuthService {
             isAuthenticated = true
             return result.accessToken
         } catch let error as NSError where Self.isAdminConsentRequired(error) {
-            // Chat.ReadWrite triggers admin consent in most tenants. MSAL
+            // Locked-down tenants require an administrator to consent to
+            // CheckIn before any user in the tenant can sign in. MSAL
             // surfaces this as a serverError with the AADSTS code embedded
             // in the description. Translating to .adminConsentRequired
             // lets SignInView render the curated message in `AuthError`
-            // instead of the raw MSAL text.
-            throw AuthError.adminConsentRequired
+            // instead of the raw MSAL text, and the captured code helps
+            // IT support reference the specific failure.
+            throw AuthError.adminConsentRequired(code: Self.adminConsentCode(error))
         }
     }
 
@@ -124,6 +126,16 @@ final class AuthService {
             || description.contains("aadsts90094")
             || description.contains("admin consent")
             || description.contains("admin approval")
+    }
+
+    /// Pull the first `AADSTS\d+` token out of MSAL's error description so
+    /// SignInView can surface it under the curated message. Nil when no
+    /// such code is present (the consent block was detected by phrase
+    /// match rather than code match).
+    private static func adminConsentCode(_ error: NSError) -> String? {
+        let description = error.localizedDescription
+        guard let match = description.range(of: #"AADSTS\d+"#, options: .regularExpression) else { return nil }
+        return String(description[match])
     }
 
     func acquireTokenSilently(enableTeams: Bool) async throws -> String {
@@ -167,7 +179,7 @@ enum AuthError: LocalizedError {
     case invalidAuthority
     case noViewController
     case notAuthenticated
-    case adminConsentRequired
+    case adminConsentRequired(code: String?)
 
     var errorDescription: String? {
         switch self {
@@ -179,11 +191,15 @@ enum AuthError: LocalizedError {
             return "Could not find a view controller to present sign-in."
         case .notAuthenticated:
             return "No signed-in account. Please sign in first."
-        case .adminConsentRequired:
-            return "Your organization requires admin consent for Teams access. "
-                + "Ask your IT administrator to approve the Chat.ReadWrite permission "
-                + "for the CheckIn app. You can still use email and calendar by "
-                + "disabling Teams in Settings."
+        case .adminConsentRequired(let code):
+            var message =
+                "Your organization requires an administrator to approve CheckIn before you can sign in. " +
+                "This is normal and not a problem with the app.\n\n" +
+                "For an email you can forward to your IT team, see [excelano.com/checkin](https://excelano.com/checkin/)."
+            if let code {
+                message += "\n\nError code: \(code)"
+            }
+            return message
         }
     }
 }
