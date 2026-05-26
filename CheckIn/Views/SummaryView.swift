@@ -40,8 +40,11 @@ struct SummaryView: View {
             .padding(.horizontal, 16)
             .ignoresSafeArea(.container, edges: .bottom)
 
-            VStack {
+            VStack(spacing: 8) {
                 Spacer()
+                transientErrorBanner
+                    .padding(.horizontal, 16)
+                    .animation(.easeInOut(duration: 0.25), value: inbox.transientError)
                 undoBanner
                     .padding(.horizontal, 16)
                     .padding(.bottom, 20)
@@ -68,6 +71,34 @@ struct SummaryView: View {
         }
         .sheet(item: $previewTarget) { target in
             MessagePreviewSheet(inbox: inbox, target: target)
+        }
+    }
+
+    @ViewBuilder
+    private var transientErrorBanner: some View {
+        if let message = inbox.transientError {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                Spacer()
+                Button {
+                    inbox.dismissTransientError()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.subheadline)
+                        .foregroundStyle(Brand.textMuted)
+                }
+                .accessibilityLabel("Dismiss error")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Brand.bgDarker)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 

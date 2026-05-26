@@ -24,6 +24,14 @@ final class Inbox {
     /// 8 seconds; only one is held at a time (replaced by the next bulk
     /// action). Nil when there's nothing to undo.
     private(set) var pendingUndo: UndoableBulkAction?
+    /// Transient user-facing failure message, set when an optimistic
+    /// action reverted because Graph rejected it. Drives a floating
+    /// banner in the summary view. Auto-clears after 6 seconds; the
+    /// most recent failure replaces any earlier one. Used only for
+    /// high-consequence actions where the silent revert isn't enough —
+    /// currently OOO toggle and custom status message. Nil when there's
+    /// no failure to surface.
+    private(set) var transientError: String?
     /// True when the user's Graph auto-reply status is `alwaysEnabled` or
     /// `scheduled`. Drives the OOO indicator that replaces the presence
     /// glyph and reroutes the tap to Settings. Refreshed on every refresh.
@@ -103,6 +111,7 @@ final class Inbox {
     private var lastRefreshedAt: Date?
     private var didRequestBadgeAuthorization = false
     @ObservationIgnored private var undoExpiryTask: Task<Void, Never>?
+    @ObservationIgnored private var transientErrorExpiryTask: Task<Void, Never>?
 
     private var emailTop: Int { showingAllEmails ? 999 : 20 }
 
@@ -127,6 +136,9 @@ final class Inbox {
         pendingUndo = nil
         undoExpiryTask?.cancel()
         undoExpiryTask = nil
+        transientError = nil
+        transientErrorExpiryTask?.cancel()
+        transientErrorExpiryTask = nil
         currentPresence = .unknown
         meetingsById = [:]
         todayMeetingIds = []
@@ -161,6 +173,27 @@ final class Inbox {
         undoExpiryTask?.cancel()
         undoExpiryTask = nil
         await action.undo()
+    }
+
+    /// Surface a brief failure message for an optimistic action that
+    /// reverted. Replaces any earlier message and restarts the 6-second
+    /// auto-clear timer.
+    private func showTransientError(_ message: String) {
+        transientError = message
+        transientErrorExpiryTask?.cancel()
+        transientErrorExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard let self, !Task.isCancelled else { return }
+            self.transientError = nil
+        }
+    }
+
+    /// User dismissed the transient-error banner without waiting for
+    /// the auto-clear.
+    func dismissTransientError() {
+        transientErrorExpiryTask?.cancel()
+        transientErrorExpiryTask = nil
+        transientError = nil
     }
 
     /// Toggle the email cap and refetch just the emails. No need to ripple
@@ -329,6 +362,7 @@ final class Inbox {
         } catch {
             logger.error("setCustomStatusMessage failed: \(error.localizedDescription, privacy: .public)")
             customStatusMessage = previous
+            showTransientError("Couldn't update your status. Try again.")
         }
     }
 
@@ -346,6 +380,7 @@ final class Inbox {
         } catch {
             logger.error("setOutOfOffice(\(on)) failed: \(error.localizedDescription, privacy: .public)")
             isOutOfOffice = previous
+            showTransientError("Couldn't update Out of Office. Try again.")
         }
     }
 
