@@ -66,7 +66,7 @@ struct CheckInApp: App {
     /// existing pending request with the same identifier, so this is
     /// idempotent. Whether and when it actually runs is at the system's
     /// discretion (usage patterns, battery, time of day).
-    private func scheduleNextBackgroundRefresh() {
+    nonisolated private func scheduleNextBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: Constants.backgroundRefreshIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: Constants.backgroundRefreshInterval)
         try? BGTaskScheduler.shared.submit(request)
