@@ -20,6 +20,7 @@ struct BulkActionsMenu: View {
     let onShowAll: () -> Void
     let onShowCapped: () -> Void
     let onMarkTodayUnread: () -> Void
+    let onMarkFlaggedUnread: () -> Void
 
     var body: some View {
         let unflaggedCount = emails.filter { !$0.isFlagged }.count
@@ -84,6 +85,9 @@ struct BulkActionsMenu: View {
             if hasItemsAbove { Divider() }
             Button(action: onMarkTodayUnread) {
                 Label("Mark unread: today's emails", systemImage: "envelope.badge")
+            }
+            Button(action: onMarkFlaggedUnread) {
+                Label("Mark unread: flagged emails", systemImage: "flag.circle")
             }
         } label: {
             ZStack {

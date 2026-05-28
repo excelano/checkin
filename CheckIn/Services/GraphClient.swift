@@ -404,6 +404,23 @@ final class GraphClient {
         return data.value.map(\.id)
     }
 
+    /// IDs of read, flagged messages in the Inbox. Backs the "Mark unread:
+    /// flagged emails" bulk action, which resurfaces follow-up items that
+    /// were read elsewhere (Outlook web, another client) so they reappear
+    /// in CheckIn's unread list. Same Inbox scoping and 200-item cap as
+    /// `idsOfReadEmailsReceivedToday`.
+    func idsOfReadFlaggedEmails() async throws -> [String] {
+        let data: GraphList<EmailIdResponse> = try await get(
+            "/me/mailFolders/inbox/messages",
+            query: [
+                "$filter": "isRead eq true and flag/flagStatus eq 'flagged'",
+                "$top": "200",
+                "$select": "id"
+            ]
+        )
+        return data.value.map(\.id)
+    }
+
     /// Mail.ReadWrite required. Used to undo an accidental Mark Read or
     /// to drive the explicit Mark Unread button on the preview sheet.
     func markEmailUnread(id: String) async throws {

@@ -438,7 +438,8 @@ struct SummaryView: View {
                                 onUnflagAll: { Task { await inbox.setFlaggedAllVisible(false) } },
                                 onShowAll: { Task { await inbox.setShowingAllEmails(true) } },
                                 onShowCapped: { Task { await inbox.setShowingAllEmails(false) } },
-                                onMarkTodayUnread: { Task { await inbox.markTodayUnread() } }
+                                onMarkTodayUnread: { Task { await inbox.markTodayUnread() } },
+                                onMarkFlaggedUnread: { Task { await inbox.markFlaggedUnread() } }
                             )
                         }
                     )

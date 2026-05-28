@@ -223,6 +223,9 @@ final class Inbox {
         }
         let userIDReady = didFetchUserID
 
+        // Heartbeat before the presence read, so one refresh reflects Available; reading first left the display a refresh behind on return.
+        await refreshPresenceSession()
+
         async let meetingsT = fetchMeetings()
         async let emailsT = fetchEmails()
         async let chatsT = fetchChats(userIDReady: userIDReady)
@@ -240,7 +243,6 @@ final class Inbox {
         currentPresence = fetchedPresence
         customStatusMessage = fetchedMessage
         isOutOfOffice = await oooT
-        await refreshPresenceSession()
         lastRefreshedAt = Date()
         lastRefreshFailed = anyFailed || meetingsResult.failed || emailsResult.failed || chatsFailed
         await updateAppBadge()
@@ -519,26 +521,48 @@ final class Inbox {
     func markTodayUnread() async {
         do {
             let ids = try await graphClient.idsOfReadEmailsReceivedToday()
-            guard !ids.isEmpty else { return }
-            _ = try await graphClient.batchMarkUnread(ids: ids)
-            let result = await fetchEmails()
-            await applyEmailsResult(result)
-            if result.failed { lastRefreshFailed = true }
-            await updateAppBadge()
-            setPendingUndo(UndoableBulkAction(
-                summary: "Marked \(ids.count) today unread",
-                undo: { [weak self] in
-                    _ = try? await self?.graphClient.batchMarkRead(ids: ids)
-                    if let self {
-                        let r = await self.fetchEmails()
-                        await self.applyEmailsResult(r)
-                    }
-                    await self?.updateAppBadge()
-                }
-            ))
+            try await resurfaceAsUnread(ids: ids, summary: "Marked \(ids.count) today unread")
         } catch {
             logger.error("markTodayUnread failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Flip every read, flagged Inbox email back to unread, so follow-up
+    /// items that were already read resurface in CheckIn. Same shape as
+    /// `markTodayUnread`: the newly-unread emails aren't in the visible
+    /// list, so we re-fetch the summary.
+    func markFlaggedUnread() async {
+        do {
+            let ids = try await graphClient.idsOfReadFlaggedEmails()
+            try await resurfaceAsUnread(ids: ids, summary: "Marked \(ids.count) flagged unread")
+        } catch {
+            logger.error("markFlaggedUnread failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Shared tail for the "resurface as unread" bulk actions: batch-marks
+    /// the given IDs unread, re-fetches the summary (the newly-unread
+    /// emails aren't in the visible list), and registers an undo that
+    /// re-marks the same IDs read. No-ops on an empty set, so no undo
+    /// banner appears when there was nothing to flip.
+    private func resurfaceAsUnread(ids: [String], summary label: String) async throws {
+        guard !ids.isEmpty else { return }
+        _ = try await graphClient.batchMarkUnread(ids: ids)
+        let result = await fetchEmails()
+        await applyEmailsResult(result)
+        if result.failed { lastRefreshFailed = true }
+        await updateAppBadge()
+        setPendingUndo(UndoableBulkAction(
+            summary: label,
+            undo: { [weak self] in
+                _ = try? await self?.graphClient.batchMarkRead(ids: ids)
+                if let self {
+                    let r = await self.fetchEmails()
+                    await self.applyEmailsResult(r)
+                }
+                await self?.updateAppBadge()
+            }
+        ))
     }
 
     /// Mark every visible email whose normalized subject matches. Strips
