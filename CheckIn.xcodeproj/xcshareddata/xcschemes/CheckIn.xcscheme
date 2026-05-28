@@ -41,6 +41,17 @@
                ReferencedContainer = "container:CheckIn.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "6BD125092FC8E42300B6B85F"
+               BuildableName = "CheckInKitTests.xctest"
+               BlueprintName = "CheckInKitTests"
+               ReferencedContainer = "container:CheckIn.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

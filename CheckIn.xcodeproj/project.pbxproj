@@ -11,6 +11,11 @@
 		6B78BD922FC15197008CF821 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6B78BD912FC15197008CF821 /* WidgetKit.framework */; };
 		6B78BD942FC15197008CF821 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6B78BD932FC15197008CF821 /* SwiftUI.framework */; };
 		6B78BDA32FC15199008CF821 /* CheckInWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6B78BD8F2FC15197008CF821 /* CheckInWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6BD1250B2FC8E42300B6B85F /* CheckInKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6BD125002FC8E42300B6B85F /* CheckInKit.framework */; };
+		6BD125152FC8E42300B6B85F /* CheckInKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6BD125002FC8E42300B6B85F /* CheckInKit.framework */; platformFilter = ios; };
+		6BD125162FC8E42300B6B85F /* CheckInKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 6BD125002FC8E42300B6B85F /* CheckInKit.framework */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6BD125202FC8E64700B6B85F /* CheckInKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6BD125002FC8E42300B6B85F /* CheckInKit.framework */; };
+		6BD125212FC8E64700B6B85F /* CheckInKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 6BD125002FC8E42300B6B85F /* CheckInKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,6 +25,34 @@
 			proxyType = 1;
 			remoteGlobalIDString = 6B78BD8E2FC15197008CF821;
 			remoteInfo = CheckInWidgetExtension;
+		};
+		6BD1250C2FC8E42300B6B85F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 19C6DDB92FAD391B008DDDF0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6BD124FF2FC8E42300B6B85F;
+			remoteInfo = CheckInKit;
+		};
+		6BD1250E2FC8E42300B6B85F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 19C6DDB92FAD391B008DDDF0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 19C6DDC02FAD391B008DDDF0;
+			remoteInfo = CheckIn;
+		};
+		6BD125132FC8E42300B6B85F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 19C6DDB92FAD391B008DDDF0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6BD124FF2FC8E42300B6B85F;
+			remoteInfo = CheckInKit;
+		};
+		6BD125222FC8E64700B6B85F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 19C6DDB92FAD391B008DDDF0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6BD124FF2FC8E42300B6B85F;
+			remoteInfo = CheckInKit;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -35,6 +68,28 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6BD125172FC8E42300B6B85F /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				6BD125162FC8E42300B6B85F /* CheckInKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BD125242FC8E64700B6B85F /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				6BD125212FC8E64700B6B85F /* CheckInKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +98,8 @@
 		6B78BD912FC15197008CF821 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		6B78BD932FC15197008CF821 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		6B78BDA92FC1540B008CF821 /* CheckInWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CheckInWidgetExtension.entitlements; sourceTree = "<group>"; };
+		6BD125002FC8E42300B6B85F /* CheckInKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = CheckInKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		6BD1250A2FC8E42300B6B85F /* CheckInKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CheckInKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -79,6 +136,16 @@
 			path = CheckInWidget;
 			sourceTree = "<group>";
 		};
+		6BD125012FC8E42300B6B85F /* CheckInKit */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CheckInKit;
+			sourceTree = "<group>";
+		};
+		6BD125102FC8E42300B6B85F /* CheckInKitTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CheckInKitTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +154,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				194F4CCD2FAD3EA70019A39C /* MSAL in Frameworks */,
+				6BD125152FC8E42300B6B85F /* CheckInKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,7 +163,23 @@
 			buildActionMask = 2147483647;
 			files = (
 				6B78BD942FC15197008CF821 /* SwiftUI.framework in Frameworks */,
+				6BD125202FC8E64700B6B85F /* CheckInKit.framework in Frameworks */,
 				6B78BD922FC15197008CF821 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BD124FD2FC8E42300B6B85F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BD125072FC8E42300B6B85F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6BD1250B2FC8E42300B6B85F /* CheckInKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,6 +192,8 @@
 				6B78BDA92FC1540B008CF821 /* CheckInWidgetExtension.entitlements */,
 				19C6DDC32FAD391B008DDDF0 /* CheckIn */,
 				6B78BD952FC15197008CF821 /* CheckInWidget */,
+				6BD125012FC8E42300B6B85F /* CheckInKit */,
+				6BD125102FC8E42300B6B85F /* CheckInKitTests */,
 				6B78BD902FC15197008CF821 /* Frameworks */,
 				19C6DDC22FAD391B008DDDF0 /* Products */,
 			);
@@ -118,6 +204,8 @@
 			children = (
 				19C6DDC12FAD391B008DDDF0 /* CheckIn.app */,
 				6B78BD8F2FC15197008CF821 /* CheckInWidgetExtension.appex */,
+				6BD125002FC8E42300B6B85F /* CheckInKit.framework */,
+				6BD1250A2FC8E42300B6B85F /* CheckInKitTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -133,6 +221,16 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXHeadersBuildPhase section */
+		6BD124FB2FC8E42300B6B85F /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		19C6DDC02FAD391B008DDDF0 /* CheckIn */ = {
 			isa = PBXNativeTarget;
@@ -142,11 +240,13 @@
 				19C6DDBE2FAD391B008DDDF0 /* Frameworks */,
 				19C6DDBF2FAD391B008DDDF0 /* Resources */,
 				6B78BDA42FC15199008CF821 /* Embed Foundation Extensions */,
+				6BD125172FC8E42300B6B85F /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				6B78BDA22FC15199008CF821 /* PBXTargetDependency */,
+				6BD125142FC8E42300B6B85F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				19C6DDC32FAD391B008DDDF0 /* CheckIn */,
@@ -166,10 +266,12 @@
 				6B78BD8B2FC15197008CF821 /* Sources */,
 				6B78BD8C2FC15197008CF821 /* Frameworks */,
 				6B78BD8D2FC15197008CF821 /* Resources */,
+				6BD125242FC8E64700B6B85F /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6BD125232FC8E64700B6B85F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				6B78BD952FC15197008CF821 /* CheckInWidget */,
@@ -180,6 +282,53 @@
 			productName = CheckInWidgetExtension;
 			productReference = 6B78BD8F2FC15197008CF821 /* CheckInWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		6BD124FF2FC8E42300B6B85F /* CheckInKit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6BD1251C2FC8E42300B6B85F /* Build configuration list for PBXNativeTarget "CheckInKit" */;
+			buildPhases = (
+				6BD124FB2FC8E42300B6B85F /* Headers */,
+				6BD124FC2FC8E42300B6B85F /* Sources */,
+				6BD124FD2FC8E42300B6B85F /* Frameworks */,
+				6BD124FE2FC8E42300B6B85F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				6BD125012FC8E42300B6B85F /* CheckInKit */,
+			);
+			name = CheckInKit;
+			packageProductDependencies = (
+			);
+			productName = CheckInKit;
+			productReference = 6BD125002FC8E42300B6B85F /* CheckInKit.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		6BD125092FC8E42300B6B85F /* CheckInKitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6BD1251D2FC8E42300B6B85F /* Build configuration list for PBXNativeTarget "CheckInKitTests" */;
+			buildPhases = (
+				6BD125062FC8E42300B6B85F /* Sources */,
+				6BD125072FC8E42300B6B85F /* Frameworks */,
+				6BD125082FC8E42300B6B85F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6BD1250D2FC8E42300B6B85F /* PBXTargetDependency */,
+				6BD1250F2FC8E42300B6B85F /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				6BD125102FC8E42300B6B85F /* CheckInKitTests */,
+			);
+			name = CheckInKitTests;
+			packageProductDependencies = (
+			);
+			productName = CheckInKitTests;
+			productReference = 6BD1250A2FC8E42300B6B85F /* CheckInKitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -196,6 +345,13 @@
 					};
 					6B78BD8E2FC15197008CF821 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					6BD124FF2FC8E42300B6B85F = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					6BD125092FC8E42300B6B85F = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 19C6DDC02FAD391B008DDDF0;
 					};
 				};
 			};
@@ -218,6 +374,8 @@
 			targets = (
 				19C6DDC02FAD391B008DDDF0 /* CheckIn */,
 				6B78BD8E2FC15197008CF821 /* CheckInWidgetExtension */,
+				6BD124FF2FC8E42300B6B85F /* CheckInKit */,
+				6BD125092FC8E42300B6B85F /* CheckInKitTests */,
 			);
 		};
 /* End PBXProject section */
@@ -231,6 +389,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		6B78BD8D2FC15197008CF821 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BD124FE2FC8E42300B6B85F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BD125082FC8E42300B6B85F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -254,6 +426,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6BD124FC2FC8E42300B6B85F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BD125062FC8E42300B6B85F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -261,6 +447,27 @@
 			isa = PBXTargetDependency;
 			target = 6B78BD8E2FC15197008CF821 /* CheckInWidgetExtension */;
 			targetProxy = 6B78BDA12FC15199008CF821 /* PBXContainerItemProxy */;
+		};
+		6BD1250D2FC8E42300B6B85F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6BD124FF2FC8E42300B6B85F /* CheckInKit */;
+			targetProxy = 6BD1250C2FC8E42300B6B85F /* PBXContainerItemProxy */;
+		};
+		6BD1250F2FC8E42300B6B85F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 19C6DDC02FAD391B008DDDF0 /* CheckIn */;
+			targetProxy = 6BD1250E2FC8E42300B6B85F /* PBXContainerItemProxy */;
+		};
+		6BD125142FC8E42300B6B85F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 6BD124FF2FC8E42300B6B85F /* CheckInKit */;
+			targetProxy = 6BD125132FC8E42300B6B85F /* PBXContainerItemProxy */;
+		};
+		6BD125232FC8E64700B6B85F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6BD124FF2FC8E42300B6B85F /* CheckInKit */;
+			targetProxy = 6BD125222FC8E64700B6B85F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -317,7 +524,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -374,7 +581,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -419,7 +626,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -458,7 +665,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -475,7 +682,7 @@
 				INFOPLIST_FILE = CheckInWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CheckInWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -507,7 +714,7 @@
 				INFOPLIST_FILE = CheckInWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CheckInWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -523,6 +730,126 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6BD125182FC8E42300B6B85F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUILD_LIBRARY_FOR_DISTRIBUTION = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9K6W5PMFYP;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				ENABLE_MODULE_VERIFIER = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
+				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
+				PRODUCT_BUNDLE_IDENTIFIER = com.excelano.CheckInKit;
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INSTALL_MODULE = YES;
+				SWIFT_INSTALL_OBJC_HEADER = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Debug;
+		};
+		6BD125192FC8E42300B6B85F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUILD_LIBRARY_FOR_DISTRIBUTION = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9K6W5PMFYP;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				ENABLE_MODULE_VERIFIER = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
+				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
+				PRODUCT_BUNDLE_IDENTIFIER = com.excelano.CheckInKit;
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INSTALL_MODULE = YES;
+				SWIFT_INSTALL_OBJC_HEADER = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Release;
+		};
+		6BD1251A2FC8E42300B6B85F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9K6W5PMFYP;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.excelano.CheckInKitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CheckIn.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CheckIn";
+			};
+			name = Debug;
+		};
+		6BD1251B2FC8E42300B6B85F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9K6W5PMFYP;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.excelano.CheckInKitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CheckIn.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CheckIn";
 			};
 			name = Release;
 		};
@@ -552,6 +879,24 @@
 			buildConfigurations = (
 				6B78BDA52FC15199008CF821 /* Debug */,
 				6B78BDA62FC15199008CF821 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6BD1251C2FC8E42300B6B85F /* Build configuration list for PBXNativeTarget "CheckInKit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6BD125182FC8E42300B6B85F /* Debug */,
+				6BD125192FC8E42300B6B85F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6BD1251D2FC8E42300B6B85F /* Build configuration list for PBXNativeTarget "CheckInKitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6BD1251A2FC8E42300B6B85F /* Debug */,
+				6BD1251B2FC8E42300B6B85F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -20,11 +20,58 @@ struct SummaryView: View {
     /// sheet via `.sheet(item:)` (rather than a Bool + separate id) means
     /// the sheet correctly targets whichever meeting was long-pressed.
     @State private var conflictTarget: Meeting?
-    /// The chat or email the user tapped to preview. Driving the sheet
-    /// via `.sheet(item:)` so the contents track whichever row was tapped.
+    /// The chat or email the user tapped to preview. On iPhone (compact)
+    /// it drives a `.sheet(item:)`; on iPad (regular) it drives the
+    /// split-view detail column instead.
     @State private var previewTarget: MessagePreviewTarget?
 
+    /// iPad (regular width) gets a NavigationSplitView; iPhone (compact)
+    /// keeps the single-column panel with sheet-based previews.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+
     var body: some View {
+        Group {
+            if isRegularWidth {
+                NavigationSplitView {
+                    panel
+                        .toolbar(.hidden, for: .navigationBar)
+                } detail: {
+                    SummaryDetailPane(inbox: inbox, target: previewTarget)
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                panel
+                    .sheet(item: $previewTarget) { target in
+                        MessagePreviewSheet(inbox: inbox, target: target)
+                    }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showSettings) {
+            SettingsView(authService: authService, inbox: inbox)
+        }
+        .sheet(isPresented: $showCustomMessageSheet) {
+            CustomMessageSheet(
+                initialMessage: inbox.customStatusMessage,
+                onSave: { text in
+                    Task { await inbox.setCustomStatusMessage(text) }
+                },
+                onClear: {
+                    Task { await inbox.setCustomStatusMessage("") }
+                }
+            )
+        }
+        .sheet(item: $conflictTarget) { target in
+            ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
+        }
+    }
+
+    /// The status panel: title bar, failure banner, the item list, and the
+    /// floating undo / error banners. Rendered bare on iPhone and as the
+    /// sidebar of the split view on iPad.
+    private var panel: some View {
         ZStack {
             Brand.bg.ignoresSafeArea()
 
@@ -50,27 +97,6 @@ struct SummaryView: View {
                     .padding(.bottom, 20)
                     .animation(.easeInOut(duration: 0.25), value: inbox.pendingUndo?.summary)
             }
-        }
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $showSettings) {
-            SettingsView(authService: authService, inbox: inbox)
-        }
-        .sheet(isPresented: $showCustomMessageSheet) {
-            CustomMessageSheet(
-                initialMessage: inbox.customStatusMessage,
-                onSave: { text in
-                    Task { await inbox.setCustomStatusMessage(text) }
-                },
-                onClear: {
-                    Task { await inbox.setCustomStatusMessage("") }
-                }
-            )
-        }
-        .sheet(item: $conflictTarget) { target in
-            ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
-        }
-        .sheet(item: $previewTarget) { target in
-            MessagePreviewSheet(inbox: inbox, target: target)
         }
     }
 
