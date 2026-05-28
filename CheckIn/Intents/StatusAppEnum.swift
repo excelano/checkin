@@ -13,7 +13,9 @@ enum StatusAppEnum: String, AppEnum {
     case available
     case busy
     case doNotDisturb
+    case beRightBack
     case away
+    case offline
     case resetToAuto
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation {
@@ -25,7 +27,9 @@ enum StatusAppEnum: String, AppEnum {
             .available: "Available",
             .busy: "Busy",
             .doNotDisturb: "Do Not Disturb",
+            .beRightBack: "Be Right Back",
             .away: "Away",
+            .offline: "Offline",
             .resetToAuto: "Reset to Automatic",
         ]
     }
@@ -38,7 +42,9 @@ enum StatusAppEnum: String, AppEnum {
         case .available: return .available
         case .busy: return .busy
         case .doNotDisturb: return .doNotDisturb
+        case .beRightBack: return .beRightBack
         case .away: return .away
+        case .offline: return .offline
         case .resetToAuto: return .unknown
         }
     }
