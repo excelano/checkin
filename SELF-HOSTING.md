@@ -8,7 +8,7 @@ You will need a Mac with Xcode 15 or later, an Apple Developer account (the free
 
 1. Fork [excelano/checkin](https://github.com/excelano/checkin) on GitHub, or just clone it directly.
 2. Decide on your **bundle ID** (for example, `com.example.checkin`). It must be unique to your Apple Developer team.
-3. Decide on your **redirect URI scheme**. The MSAL convention is `msauth.<bundle-id>`, so a bundle ID of `com.example.checkin` gives a redirect URI scheme of `msauth.com.example.checkin` and a full redirect URI of `msauth.com.example.checkin://auth`.
+3. Decide on your **redirect URI scheme**. The MSAL convention is `msauth.<bundle-id>`, so a bundle ID of `com.example.checkin` gives a redirect URI scheme of `msauth.com.example.checkin` and a full redirect URI of `msauth.com.example.checkin://auth`. The widget extension is a second bundle, `<bundle-id>.CheckInWidget`, with its own redirect URI, `msauth.<bundle-id>.CheckInWidget://auth`. You register both in Azure (Step 4), because the interactive widget authenticates under the extension's own bundle ID.
 
 ## Step 2: Update the source
 
@@ -29,7 +29,7 @@ You will need a Mac with Xcode 15 or later, an Apple Developer account (the free
 2. Navigate to **Microsoft Entra ID** > **App registrations** > **New registration**.
 3. Name the registration whatever you like (for example, "CheckIn personal").
 4. Under **Supported account types**, choose multi-tenant if you plan to sign in with multiple M365 accounts; otherwise single-tenant.
-5. Under **Redirect URI**, choose **Public client/native (mobile & desktop)** and enter your custom redirect URI (`msauth.<your-bundle-id>://auth`).
+5. Under **Redirect URI**, choose **Public client/native (mobile & desktop)** and enter your custom redirect URI (`msauth.<your-bundle-id>://auth`). Then add a **second** redirect URI for the widget extension: `msauth.<your-bundle-id>.CheckInWidget://auth`. The interactive widget's presence buttons run in the widget extension process, which authenticates under its own bundle ID, so Entra must have that redirect URI registered as well. If you omit it, the widget's buttons work right after sign-in but fail silently once the access token expires (roughly an hour later), because the token refresh carries the extension's redirect URI (see Common errors, AADSTS50011).
 6. Click **Register**.
 7. In the registration's sidebar, open **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**. Add `User.Read`, `Mail.ReadWrite`, and `Calendars.Read`. If you want Teams chat support, also add `Chat.ReadWrite`.
 8. Click **Add permissions**. If your tenant requires admin consent for any permission (typically `Chat.ReadWrite`), grant it via **Grant admin consent for [tenant]**, or have an administrator do so. Without consent, MSAL returns AADSTS65001 on sign-in for the affected scopes.
@@ -50,7 +50,7 @@ After install, confirm the app behaves as expected. Sign in with an M365 account
 
 ## Common errors
 
-**AADSTS50011: redirect URI mismatch.** Your `Info.plist` URL scheme, `Constants.redirectURI`, and the Azure App Registration redirect URI must agree exactly, including the `://auth` suffix.
+**AADSTS50011: redirect URI mismatch.** Your `Info.plist` URL scheme, `Constants.redirectURI`, and the Azure App Registration redirect URI must agree exactly, including the `://auth` suffix. If sign-in succeeds but the **widget's presence buttons do nothing**, and especially if they stop working only after the app has been idle for an hour or so, the cause is the missing widget redirect URI: add `msauth.<your-bundle-id>.CheckInWidget://auth` to the registration. This failure is silent and delayed because the widget contacts Entra only when its cached token expires and it has to refresh; before that, a cached token masks the problem.
 
 **AADSTS65001: admin consent required.** A scope your registration requests needs admin consent. Either drop the scope (for example, disable Teams in your build) or have a tenant admin grant consent.
 

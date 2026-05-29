@@ -108,8 +108,11 @@ final class WidgetStatusClient: Sendable {
             throw WidgetStatusError.notConfigured
         }
         let authority = try MSALAADAuthority(url: authorityURL)
-        // redirectUri nil → MSAL derives the extension's own default; the app's
-        // URI fails per-process validation. Pin the shared cache group.
+        // redirectUri nil → MSAL derives the extension's own default,
+        // msauth.com.excelano.checkin.CheckInWidget://auth. MSAL locks that
+        // msauth.<bundle_id> format to the running bundle, so the extension
+        // can't reuse the app's URI; its own must be registered in Entra or
+        // silent token refresh fails (AADSTS50011). Pin the shared cache group.
         let msalConfig = MSALPublicClientApplicationConfig(
             clientId: config.clientID,
             redirectUri: nil,
