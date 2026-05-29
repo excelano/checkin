@@ -78,6 +78,11 @@ struct CheckInProvider: TimelineProvider {
     }
 }
 
+/// Lead time before a meeting's start at which the Join button replaces the
+/// time + organizer line. Outside this window the row shows "in N min"; inside
+/// it the button takes the row.
+private let joinPillLeadTime: TimeInterval = 5 * 60
+
 /// Mirrors `untilTime` in the main app's RelativeTime.swift — formats
 /// the gap to a future date as "now", "Starting soon", "in N min",
 /// "in N hour(s)", or "in Nh Mm". `referenceDate` is the entry's
@@ -108,7 +113,6 @@ struct CheckInWidgetEntryView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     meetingBlock
                     Spacer(minLength: 0)
-                    joinPillIfAvailable
                 }
                 .frame(maxHeight: .infinity)
                 Spacer(minLength: 0)
@@ -120,11 +124,19 @@ struct CheckInWidgetEntryView: View {
         }
     }
 
+    /// Below the subject: the time + organizer until the meeting is within
+    /// `joinPillLeadTime` of starting, then the Join button takes the row
+    /// (dropping the organizer). In-person meetings (no join URL) keep showing
+    /// the time + organizer.
     @ViewBuilder
-    private var joinPillIfAvailable: some View {
-        if let urlString = entry.snapshot?.nextMeetingJoinUrl,
+    private func meetingDetailLine(start: Date) -> some View {
+        let secondsToStart = start.timeIntervalSince(entry.date)
+        if secondsToStart <= joinPillLeadTime,
+           let urlString = entry.snapshot?.nextMeetingJoinUrl,
            let url = teamsJoinURL(from: urlString) {
             joinPill(url: url)
+        } else {
+            organizerLine(start: start, organizer: entry.snapshot?.nextMeetingOrganizer)
         }
     }
 
@@ -132,20 +144,13 @@ struct CheckInWidgetEntryView: View {
     private var meetingBlock: some View {
         if let subject = entry.snapshot?.nextMeetingSubject,
            let start = entry.snapshot?.nextMeetingStart {
-            HStack(spacing: 6) {
-                Text("NEXT MEETING")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Brand.accent)
-                Text(start, style: .time)
-                    .font(.subheadline)
-                    .foregroundStyle(Brand.textMuted)
-            }
+            meetingHeader(start: start)
             Text(subject)
                 .font(.headline)
                 .foregroundStyle(.white)
                 .lineLimit(2)
                 .truncationMode(.tail)
-            organizerLine(start: start, organizer: entry.snapshot?.nextMeetingOrganizer)
+            meetingDetailLine(start: start)
         } else if entry.snapshot != nil {
             Text("No more meetings today.")
                 .font(.headline)
@@ -162,12 +167,30 @@ struct CheckInWidgetEntryView: View {
         }
     }
 
+    /// "NEXT MEETING" until the meeting starts, then "IN PROGRESS" once
+    /// `start` is at or before the entry's date. The label is computed against
+    /// `entry.date`, so the per-minute timeline flips it on its own without a
+    /// refetch. In progress reads orange to signal the meeting is live.
+    private func meetingHeader(start: Date) -> some View {
+        let inProgress = start <= entry.date
+        return HStack(spacing: 6) {
+            Text(inProgress ? "IN PROGRESS" : "NEXT MEETING")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(inProgress ? .orange : Brand.accent)
+            Text(start, style: .time)
+                .font(.subheadline)
+                .foregroundStyle(Brand.textMuted)
+        }
+    }
+
     private func organizerLine(start: Date, organizer: String?) -> some View {
         let imminent = isMeetingImminent(start, referenceDate: entry.date)
         return HStack(spacing: 8) {
             Text(untilTime(start, referenceDate: entry.date))
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(imminent ? .orange : Brand.accent)
+                .lineLimit(1)
+                .layoutPriority(1)
             if let organizer, !organizer.isEmpty {
                 Text("with \(organizer)")
                     .font(.subheadline)
