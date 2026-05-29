@@ -63,12 +63,32 @@ private let separatorLineRegex = try? NSRegularExpression(
 // and a pure `\n{2,}` pattern misses that.
 private let collapseBlankLinesRegex = try? NSRegularExpression(pattern: #"\n([ \t]*\n)+"#)
 
+// Image placeholders left by Exchange's HTML→text body conversion. Each
+// `<img>` becomes its alt text in square brackets — "[Calendar Icon]",
+// "[Sharing Laptop Image]" — or a "[cid:…]" / "[logo.png]" reference. We
+// only strip brackets that carry an image marker (a cid, an image file
+// extension, or an image-ish word), so genuine bracketed text like
+// "[EXTERNAL]" or "[Action Required]" survives.
+private let imagePlaceholderRegex = try? NSRegularExpression(
+    pattern: #"\[[^\]\n]*(?:cid:|\.(?:png|jpe?g|gif|svg|bmp|webp|tiff?|ico)\b|\b(?:image|images|icon|logo|photo|picture|graphic|graphics|banner|avatar|thumbnail|headshot|spacer|pixel)\b)[^\]\n]*\]"#,
+    options: .caseInsensitive
+)
+
+// Empty brackets, the residue of an image with no alt text.
+private let emptyBracketRegex = try? NSRegularExpression(pattern: #"\[[ \t]*\]"#)
+
+// Collapse runs of spaces/tabs (but not newlines) to one space, so removing
+// an inline placeholder doesn't leave "word  word" double-spaced.
+private let horizontalSpaceRegex = try? NSRegularExpression(pattern: #"[^\S\n]{2,}"#)
+
 /// Clean Graph's `bodyPreview` down to the meat of the latest message.
 /// - Strips a leading salutation only when it occupies its own line.
 /// - Cuts at the first quoted-reply marker (`"On … wrote:"` or
 ///   Outlook's `"From: …"` header) and discards everything after.
 /// - Runs the result through `stripHTML` for safety in case Graph
 ///   ever returns HTML in `bodyPreview` for some accounts.
+/// - Drops image placeholders ("[Calendar Icon]", "[cid:…]") that
+///   Exchange's HTML→text conversion leaves in the body.
 /// - Collapses blank lines and trims surrounding whitespace.
 func cleanEmailPreview(_ raw: String) -> String {
     // Graph returns CRLF (`\r\n`) for line endings. Normalize to LF so
@@ -78,6 +98,20 @@ func cleanEmailPreview(_ raw: String) -> String {
     var s = raw.replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
     s = stripHTML(s)
+
+    // Drop image placeholders (e.g. "[Calendar Icon]") that Exchange's text
+    // conversion leaves behind, then close the horizontal gap an inline one
+    // leaves. Own-line placeholders become blank lines that the blank-line
+    // collapse below removes.
+    if let regex = imagePlaceholderRegex {
+        s = regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+    }
+    if let regex = emptyBracketRegex {
+        s = regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+    }
+    if let regex = horizontalSpaceRegex {
+        s = regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: " ")
+    }
 
     // Take the earliest of any quoted-reply or signature marker as the
     // cut point. Everything from there onward is discarded — that's
