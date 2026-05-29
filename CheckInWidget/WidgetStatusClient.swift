@@ -40,14 +40,14 @@ final class WidgetStatusClient: Sendable {
     /// Mirrors `Inbox.setPresence`, including turning Out of Office off when a
     /// presence is explicitly chosen.
     ///
-    /// Optimistic: the snapshot is patched up front so the tapped pill is
-    /// already correct whenever WidgetKit next redraws, then the Graph call
-    /// runs and the change is reverted if it fails.
+    /// The snapshot is written once, after the Graph call succeeds. WidgetKit
+    /// re-renders only after `perform()` returns and ignores a mid-call
+    /// reload, so an upfront optimistic patch never paints early, and the
+    /// toggle's instant flip is WidgetKit-driven and needs no snapshot help.
+    /// On failure the prior snapshot is left untouched and a reload lets the
+    /// toggle settle back to it.
     func applyPresence(_ presence: Presence) async throws {
-        let previous = currentSnapshot()
-        // Choosing a presence also clears Out of Office, matching the picker.
-        patchSnapshot(presence: presence, isOutOfOffice: false)
-
+        let wasOutOfOffice = currentSnapshot()?.isOutOfOffice == true
         do {
             let token = try await acquireToken()
 
@@ -61,36 +61,30 @@ final class WidgetStatusClient: Sendable {
                 try await postPreferredPresence(token: token, presence: presence)
             }
 
-            if previous?.isOutOfOffice == true {
+            // Choosing a presence also clears Out of Office, matching the picker.
+            if wasOutOfOffice {
                 try? await setAutomaticReplies(token: token, on: false)
             }
+            patchSnapshot(presence: presence, isOutOfOffice: false)
         } catch {
-            revert(to: previous)
+            WidgetCenter.shared.reloadAllTimelines()
             throw error
         }
     }
 
     /// Turn Outlook automatic replies on or off. Mirrors
     /// `GraphClient.enableAutomaticReplies` / `disableAutomaticReplies`.
-    /// Optimistic update with revert on failure, same as `applyPresence`.
+    /// Snapshot written once on success, left untouched on failure.
     func applyOutOfOffice(_ on: Bool) async throws {
-        let previous = currentSnapshot()
-        patchSnapshot(presence: previous?.presence ?? .unknown, isOutOfOffice: on)
-
         do {
             let token = try await acquireToken()
             try await setAutomaticReplies(token: token, on: on)
+            let presence = currentSnapshot()?.presence ?? .unknown
+            patchSnapshot(presence: presence, isOutOfOffice: on)
         } catch {
-            revert(to: previous)
+            WidgetCenter.shared.reloadAllTimelines()
             throw error
         }
-    }
-
-    /// Restore the snapshot after a failed mutation so the optimistic
-    /// highlight rolls back to the real state.
-    private func revert(to snapshot: CheckInSnapshot?) {
-        guard let snapshot else { return }
-        patchSnapshot(presence: snapshot.presence, isOutOfOffice: snapshot.isOutOfOffice)
     }
 
     // MARK: - Token
