@@ -9,7 +9,7 @@ What a user can do, mapped to the entry point in the UI.
 | Sign in with Microsoft 365 | "Sign In with Microsoft" button on launch when signed out |
 | Sign out | Settings sheet → Sign Out (with confirm dialog; the section is hidden when not signed in) |
 | Refresh inbox (meeting, chats, emails) | Pull-to-refresh on the summary list. Also auto-refreshes when the app returns to the foreground (skipped if a refresh finished within the last 30 seconds). |
-| Background refresh while the app is closed | iOS `BGAppRefreshTask` scheduled every time the app goes to the background, with a 30-min minimum interval. Actual cadence is at the OS's discretion (typically 15-60 min during active hours, less when quiet). Disabled by iOS if you force-quit from the app switcher until the next launch. |
+| Background refresh while the app is closed | iOS `BGAppRefreshTask` scheduled every time the app goes to the background, with a 15-min minimum interval. Actual cadence is at the OS's discretion (typically 15-60 min during active hours, less when quiet). Disabled by iOS if you force-quit from the app switcher until the next launch. |
 | App-icon badge showing pending items | iOS app-icon badge updated to `unread emails + pending chats` after every refresh and after every local mark-read. Meetings are intentionally excluded — they're scheduled, not items to triage. Requests notification permission (`.badge` only) on first use; silently no-ops if denied. |
 | See when a refresh failed | Orange warning banner ("Couldn't reach Microsoft — pull to retry") appears between the top bar and the content when any Graph call in the last refresh hit an error. Cleared automatically by the next successful refresh. Detailed errors still go to `os.Logger` for diagnostics. |
 
@@ -17,10 +17,10 @@ What a user can do, mapped to the entry point in the UI.
 
 | Function | Triggered by |
 |---|---|
-| See next meeting in the next 24 hours | Top of the list when one exists; cancelled events and events you've declined are skipped |
-| See the rest of today's meetings | "Later today" section between the next-meeting card and the Chats section, showing each remaining meeting as a compact row (time of day + subject). Same cancelled/declined skip. Tap a row to join in Teams. Window ends at start of tomorrow local time. |
+| See next meeting in the next 24 hours | Top of the list when one exists; cancelled events and events you've declined are skipped. The card is a three-row layout: calendar icon + time range ("9-9:30 PM"), then subject, then countdown ("in 12 min" / "soon" / "now") with the organizer alongside. The list re-renders every 30 seconds so back-to-back meetings transition without a manual refresh. |
+| See the rest of today's meetings | "Later today" section between the next-meeting card and the Chats section, showing each remaining meeting as a compact row (calendar + time range + subject). Same cancelled/declined skip. Tap a row to join in Teams. Window ends at start of tomorrow local time. |
 | Join a meeting in Teams | Tap the meeting card (for the next meeting) or a "Later today" row (uses Graph's `onlineMeeting.joinUrl`; rewritten to `msteams:/` so iOS routes directly to the Teams app) |
-| Highlight when the next meeting is starting soon | When the meeting starts within the next 3 minutes, the time label flips from the usual cyan "in N min" to orange "Starting soon". In-progress meetings continue to show "now" in cyan. |
+| Highlight when the next meeting is imminent or in progress | When the meeting starts within the next 3 minutes, the calendar icon and countdown both flip from cyan to orange and the countdown reads "soon". Once the meeting starts, the countdown reads "now" in orange. The same treatment applies to "Later today" rows the moment one of them enters the imminent or in-progress window. |
 | See a conflict warning when a meeting overlaps another | Orange triangle on the meeting card, on "Later today" rows, AND on the matching invite email's subject line. Computed across the same 10-event window we fetch; back-to-back meetings (one ending exactly when the next starts) don't count. |
 | Resolve a meeting conflict | Tap the orange triangle on any of: the meeting card, a "Later today" row, an invite-email row, or an invite preview sheet. Opens a conflict-resolution sheet that lists the overlapping meetings and lets you Accept / Maybe / Decline each. |
 | RSVP to a meeting (Accept / Maybe / Decline) | Three buttons under the meeting info on the calendar card OR under the meeting info on an invite-email row OR in the preview sheet for an invite email — all three surfaces feed the same Graph endpoint and stay in sync. Optimistic update, POSTs to Graph with `sendResponse=true`. |
@@ -98,8 +98,45 @@ What a user can do, mapped to the entry point in the UI.
 
 | Function | Triggered by |
 |---|---|
-| Glance at next meeting + unread counts from the home screen | Add the CheckIn widget (medium size). Shows the next meeting (subject, time, organizer, countdown), unread email count, and pending chat count. Refreshed by the main app on every refresh via `WidgetCenter`. |
-| Join the next meeting directly from the widget | Tap the "Join meeting" pill on the widget (only present when the meeting has a join URL). Rewrites to `msteams:/` so iOS routes to Teams. |
+| Glance at next meeting + unread counts from the home screen | Add the CheckIn widget (medium size). Three-row meeting layout (calendar + time range / subject / countdown + organizer), unread email count, pending chat count. Refreshed by the main app on every refresh via `WidgetCenter`. Pre-generated timeline entries at each upcoming meeting start so back-to-back transitions don't require an app refresh. |
+| Join the next meeting directly from the widget | Tap the "Join meeting" pill on the widget (visible within five minutes of the meeting's start when a join URL exists). Rewrites to `msteams:/` so iOS routes to Teams. |
+| Set Teams presence from the widget | Tap any of the six presence pills on the medium widget (Available, Busy, Do not disturb, Be right back, Away, Offline). Runs in the widget extension via a shared `StatusActions`; uses the device's cached MSAL token to PATCH Graph; reloads the widget and Control Center controls when it returns. Optimistic UI; falls back to opening the app if silent token refresh fails. |
+| Toggle Out of Office from the widget | Tap the OOO pill on the medium widget. Same execution path as the presence pills; flips Outlook auto-replies and clears any presence override. |
+
+## Control Center controls (iOS 18+)
+
+| Function | Triggered by |
+|---|---|
+| Toggle Out of Office from Control Center | Add the "Out of Office" toggle to Control Center. Reflects the live OOO state from the shared snapshot, runs `SetOutOfOfficeIntent` in the widget extension, reloads both the controls and the widgets on completion. |
+| Quick-set Teams presence from Control Center | Add any of the six presence controls (Available, Busy, Do Not Disturb, Be Right Back, Away, Offline). One-tap action; same execution path as the widget pills. |
+| Clear a presence override from Control Center | Add the "Reset to auto" control. Clears the preferred-presence override and any OOO state, then refetches the auto-detected presence. |
+
+## App Intents / Siri shortcuts
+
+| Function | Triggered by |
+|---|---|
+| Set presence by voice or Shortcut | "Set status to Busy in CheckIn" (Siri) or `SetStatusIntent` in Shortcuts. Same six presences as the widget plus "Reset to auto". |
+| Toggle Out of Office by voice or Shortcut | "Turn on Out of Office in CheckIn" or `SetOutOfOfficeIntent` in Shortcuts. |
+| Read unread email or pending chat count by voice or Shortcut | "What's my email count in CheckIn" routes through `CheckInCountIntent`. Returns an integer plus a spoken phrase. |
+| Read unread from a sender by voice or Shortcut | "Anything from <name> in CheckIn" routes through `UnreadFromSenderIntent`. Returns the count of unread messages from the matched sender. |
+
+App-name token always comes last in the phrasing ("in CheckIn") so Siri doesn't collide with the system's "Check In" Messages feature.
+
+## iPad layout
+
+| Function | Triggered by |
+|---|---|
+| Use CheckIn natively on iPad | Launch on iPad. The app declares `TARGETED_DEVICE_FAMILY = "1,2"` and `SummaryView` branches on `horizontalSizeClass`: compact width (iPhone, slide-over, narrow split) keeps the existing single-column list; regular width (full-screen iPad and most split configurations) uses a `NavigationSplitView` with the section list as the sidebar and the selected email, chat, or meeting as a persistent detail pane. |
+| Preview an email, chat, or meeting in the detail pane | Tap a row on iPad. The same content the iPhone shows in a sheet (`MessagePreviewSheet`, `MeetingCard`, `ConflictResolutionSheet`) renders in the right pane instead. Selection survives orientation changes. |
+
+## Apple Watch companion
+
+| Function | Triggered by |
+|---|---|
+| See your CheckIn status from the wrist | Open the CheckIn watch app. Glance shows the presence pill (OOO dominates when active), next meeting (calendar + time range / subject / countdown — same three-row pattern as the phone), the "Later today" list, and pinned email + chat count chips at the bottom. The phone pushes the snapshot to the watch over WatchConnectivity; the watch holds no token and makes no Graph call. |
+| Add CheckIn to a watch face or the Smart Stack | Four widget families share the same pushed snapshot. Corner complication shows a presence-colored circle with a cutout glyph and a curved countdown to the next meeting. Smart Stack rectangular tile shows the three-row meeting pattern with the count chips alongside. Circular complication shows a presence-tinted ring with the unread email count centered. Inline complication shows "Status sync in 12m" or "Inbox: 7 unread" depending on what's next. |
+| Set Teams presence from the watch | Glance → presence menu. Same six presences plus OOO and Reset to auto. Tap relays the action to the phone via `WCSession.sendMessage` (live, when the phone is reachable) with `transferUserInfo` fallback. The phone executes the Graph PATCH and pushes a fresh snapshot back. |
+| Trigger a refresh from the watch | Glance → refresh button (gray circle in the pinned counts row). Asks the phone to refresh and pushes the updated snapshot back. Auto-refreshes when the glance opens if the snapshot is over 60 seconds old. Surfaces "Phone unreachable" inline when WatchConnectivity can't deliver the request. |
 
 ## Not yet supported
 
@@ -108,6 +145,4 @@ What a user can do, mapped to the entry point in the UI.
 - View past meetings (the calendar view is "today only")
 - Open the specific calendar event for non-Teams meetings (only the calendar at large, via Teams)
 - Edit the auto-reply message body (only the on/off state — edit the message itself in Outlook on the web)
-- App Intents / Siri shortcuts
-- Apple Watch companion
-- iPad layout
+- Watch app working standalone on cellular (opt-in independent watch sign-in; deferred to a later release)

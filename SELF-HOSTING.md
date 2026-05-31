@@ -31,8 +31,8 @@ You will need a Mac with Xcode 15 or later, an Apple Developer account (the free
 4. Under **Supported account types**, choose multi-tenant if you plan to sign in with multiple M365 accounts; otherwise single-tenant.
 5. Under **Redirect URI**, choose **Public client/native (mobile & desktop)** and enter your custom redirect URI (`msauth.<your-bundle-id>://auth`). Then add a **second** redirect URI for the widget extension: `msauth.<your-bundle-id>.CheckInWidget://auth`. The interactive widget's presence buttons run in the widget extension process, which authenticates under its own bundle ID, so Entra must have that redirect URI registered as well. If you omit it, the widget's buttons work right after sign-in but fail silently once the access token expires (roughly an hour later), because the token refresh carries the extension's redirect URI (see Common errors, AADSTS50011).
 6. Click **Register**.
-7. In the registration's sidebar, open **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**. Add `User.Read`, `Mail.ReadWrite`, and `Calendars.Read`. If you want Teams chat support, also add `Chat.ReadWrite`.
-8. Click **Add permissions**. If your tenant requires admin consent for any permission (typically `Chat.ReadWrite`), grant it via **Grant admin consent for [tenant]**, or have an administrator do so. Without consent, MSAL returns AADSTS65001 on sign-in for the affected scopes.
+7. In the registration's sidebar, open **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**. The base set CheckIn requires is `User.Read`, `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, and `MailboxSettings.ReadWrite` (the last one drives the Out-of-Office toggle). For Teams chat and presence support also add `Chat.ReadWrite` and `Presence.ReadWrite`; the same `Presence.ReadWrite` permission drives the widget presence pills, the Control Center controls, and the Siri / Shortcuts intents.
+8. Click **Add permissions**. If your tenant requires admin consent for any permission (typically `Chat.ReadWrite` or `Presence.ReadWrite`), grant it via **Grant admin consent for [tenant]**, or have an administrator do so. Without consent, MSAL returns AADSTS65001 on sign-in for the affected scopes.
 9. Open **Authentication** in the registration's sidebar. Under **Advanced settings**, set **Allow public client flows** to **Yes**. Save.
 10. The **Application (client) ID** is shown on the registration's **Overview** page. Copy it into `Constants.swift` from step 2.
 
@@ -43,6 +43,10 @@ You will need a Mac with Xcode 15 or later, an Apple Developer account (the free
 3. The first launch prompts for M365 sign-in. The sign-in flow uses your Azure App Registration.
 
 For longer-lived installs, distribute via TestFlight (paid Developer account required). Publishing your fork to the App Store under your own developer account is permitted by the MIT license but is your responsibility, including reviewing the App Privacy declaration against your build's actual behavior.
+
+## A note on the Apple Watch companion
+
+The repository includes an Apple Watch app and watch widget extension targets. In this release they are a read-only mirror of the phone: the phone pushes status data to the watch over Apple's on-device WatchConnectivity transport, the watch holds no Microsoft token, and any presence change you make on the watch is relayed back to the phone for the phone to execute against Graph. **No additional Azure App Registration changes are required for the watch.** What you do need on the Apple side, when you sign and run the watch targets under your own team: a bundle ID for the watch app (the convention is `<your-bundle-id>.watchkitapp`) and a bundle ID for its widget extension (`<your-bundle-id>.watchkitapp.widgets`), and a separate App Group for the watch (the convention is `group.<your-bundle-id>.watch`) shared between those two targets so the watch widget can read the snapshot the watch app receives. The phone's App Group and keychain group are not extended to the watch; App Groups don't cross devices anyway.
 
 ## Verifying your build
 
