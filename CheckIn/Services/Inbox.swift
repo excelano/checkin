@@ -78,6 +78,34 @@ final class Inbox {
         Array(todayMeetingIds.dropFirst()).compactMap { meetingsById[$0] }
     }
 
+    /// Today's full meeting list reconstructed in order: `nextMeeting`
+    /// followed by `laterToday`. Used by the time-driven view helpers
+    /// below to advance the active meeting through the cached list.
+    private var todayMeetings: [Meeting] {
+        var all: [Meeting] = []
+        if let next = nextMeeting { all.append(next) }
+        all.append(contentsOf: laterToday)
+        return all
+    }
+
+    /// The meeting that's currently active or coming up next at
+    /// `referenceDate`. Walks `todayMeetings` and returns the first
+    /// entry whose end is in the future. Lets the summary view advance
+    /// from a just-ended meeting to a back-to-back one at the exact
+    /// minute boundary without waiting for the next refresh.
+    func currentMeeting(at referenceDate: Date) -> Meeting? {
+        todayMeetings.first { $0.end > referenceDate }
+    }
+
+    /// The meetings remaining after the currently-active or next one
+    /// at `referenceDate`. Mirrors `laterToday` but with the time-based
+    /// rotation applied, so the "Later today" section drops a meeting
+    /// from the top as the day progresses.
+    func remainingLaterToday(at referenceDate: Date) -> [Meeting] {
+        let upcoming = todayMeetings.filter { $0.end > referenceDate }
+        return Array(upcoming.dropFirst())
+    }
+
     /// Every Meeting CheckIn knows about — today's window, invite
     /// referents, and reference-pool calendar events. Read by
     /// `ConflictResolutionSheet` to build its candidate list, and by
@@ -303,12 +331,19 @@ final class Inbox {
         guard let summary else { return }
         let next = nextMeeting
         let laterSnapshot = laterToday.map {
-            SnapshotMeeting(subject: $0.subject, start: $0.start)
+            SnapshotMeeting(
+                subject: $0.subject,
+                start: $0.start,
+                end: $0.end,
+                organizer: $0.organizer,
+                joinUrl: $0.joinUrl
+            )
         }
         let snapshot = CheckInSnapshot(
             updatedAt: Date(),
             nextMeetingSubject: next?.subject,
             nextMeetingStart: next?.start,
+            nextMeetingEnd: next?.end,
             nextMeetingOrganizer: next?.organizer,
             nextMeetingJoinUrl: next?.joinUrl,
             unreadEmailCount: summary.totalUnreadEmails,

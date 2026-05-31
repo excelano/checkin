@@ -19,34 +19,41 @@ public let pendingChatLookback: TimeInterval = 24 * 3600
 /// stay app-side. Field semantics match `Inbox.publishStatusSnapshot` so a
 /// self-fetched snapshot reads the same as an app-written one.
 public extension GraphCore {
-    /// Fetch everything the snapshot surfaces (next meeting, unread email
+    /// Fetch everything the snapshot surfaces (today's meetings, unread email
     /// count, pending chat count, presence, Out of Office) and assemble it.
     /// Calls run sequentially; the widget's timeline-reload budget, not these
     /// round-trips, is the binding constraint.
     func fetchSnapshot() async throws -> CheckInSnapshot {
-        let meeting = try await fetchNextMeeting()
+        let meetings = try await fetchTodayMeetings()
         let unreadEmailCount = try await fetchUnreadEmailCount()
         let chatCount = try await fetchPendingChatCount()
         let presence = try await fetchPresence().presence
         let isOutOfOffice = try await fetchAutomaticRepliesEnabled()
 
+        let nextMeeting = meetings.first
+        let later = Array(meetings.dropFirst())
+
         return CheckInSnapshot(
             updatedAt: Date(),
-            nextMeetingSubject: meeting?.subject,
-            nextMeetingStart: meeting?.start,
-            nextMeetingOrganizer: meeting?.organizer,
-            nextMeetingJoinUrl: meeting?.joinUrl,
+            nextMeetingSubject: nextMeeting?.subject,
+            nextMeetingStart: nextMeeting?.start,
+            nextMeetingEnd: nextMeeting?.end,
+            nextMeetingOrganizer: nextMeeting?.organizer,
+            nextMeetingJoinUrl: nextMeeting?.joinUrl,
             unreadEmailCount: unreadEmailCount,
             chatCount: chatCount,
             presence: presence,
-            isOutOfOffice: isOutOfOffice
+            isOutOfOffice: isOutOfOffice,
+            laterMeetings: later
         )
     }
 
-    /// Earliest attendable meeting in the rest of today, mirroring
+    /// Attendable meetings remaining today in chronological order, mirroring
     /// `GraphClient.todaysMeetings`'s window and filters (skip cancelled and
-    /// declined). Returns only the fields the snapshot shows.
-    private func fetchNextMeeting() async throws -> SnapshotMeeting? {
+    /// declined). Returns enough info to populate both the "next meeting"
+    /// slot and the "later today" tail, with end times so consumers can
+    /// advance through the list as meetings pass.
+    private func fetchTodayMeetings() async throws -> [CheckInKit.SnapshotMeeting] {
         let now = Date()
         let calendar = Calendar.current
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
@@ -57,21 +64,21 @@ public extension GraphCore {
             "endDateTime": formatter.string(from: endOfDay),
             "$top": "10",
             "$orderby": "start/dateTime",
-            "$select": "subject,organizer,start,onlineMeeting,responseStatus,isCancelled"
+            "$select": "subject,organizer,start,end,onlineMeeting,responseStatus,isCancelled"
         ])
 
-        let earliest = data.value
+        return data.value
             .filter { !($0.isCancelled ?? false) && $0.responseStatus?.response != "declined" }
-            .map { event -> SnapshotMeeting in
-                SnapshotMeeting(
+            .map { event -> CheckInKit.SnapshotMeeting in
+                CheckInKit.SnapshotMeeting(
                     subject: event.subject,
-                    organizer: event.organizer.emailAddress.name,
                     start: parseGraphDate(event.start.dateTime, timeZone: event.start.timeZone),
+                    end: parseGraphDate(event.end.dateTime, timeZone: event.end.timeZone),
+                    organizer: event.organizer.emailAddress.name,
                     joinUrl: event.onlineMeeting?.joinUrl
                 )
             }
-            .min { $0.start < $1.start }
-        return earliest
+            .sorted { $0.start < $1.start }
     }
 
     /// Total unread inbox count. `$count=true` requires the
@@ -123,13 +130,6 @@ public extension GraphCore {
 
 // MARK: - Lean decode shapes (module-internal)
 
-private struct SnapshotMeeting {
-    let subject: String
-    let organizer: String
-    let start: Date
-    let joinUrl: String?
-}
-
 struct SnapshotID: Decodable {
     let id: String
 }
@@ -138,6 +138,7 @@ struct SnapshotEvent: Decodable {
     let subject: String
     let organizer: SnapshotOrganizer
     let start: SnapshotDateTime
+    let end: SnapshotDateTime
     let onlineMeeting: SnapshotOnlineMeeting?
     let responseStatus: SnapshotResponseStatus?
     let isCancelled: Bool?

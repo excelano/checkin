@@ -29,11 +29,17 @@ struct WatchStatusProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<WatchStatusEntry>) -> Void) {
         let snapshot = load()
         let now = Date()
-        // Refresh roughly every 15 minutes so the countdown text stays
-        // close to live between WatchConnectivity pushes. The receiver
-        // calls reloadAllTimelines() on each push, so the system also
-        // refreshes whenever fresh data lands.
-        let entries = [WatchStatusEntry(date: now, snapshot: snapshot)]
+        // Always emit a "now" entry, then one at each upcoming meeting
+        // start so the widget swaps to the next meeting at the exact
+        // moment one ends and another begins back-to-back. Without
+        // these explicit transition entries, the widget would sit on
+        // a stale meeting until the 15-minute reload tick.
+        var entries: [WatchStatusEntry] = [WatchStatusEntry(date: now, snapshot: snapshot)]
+        if let snapshot {
+            for date in snapshot.upcomingMeetingStartDates(after: now) {
+                entries.append(WatchStatusEntry(date: date, snapshot: snapshot))
+            }
+        }
         let next = now.addingTimeInterval(15 * 60)
         completion(Timeline(entries: entries, policy: .after(next)))
     }
@@ -69,10 +75,11 @@ struct WatchCornerView: View {
     /// Curved label text on the corner edge. Prefers the countdown when
     /// a meeting is coming up so the glyph still reflects presence while
     /// the words tell you when you're up next; otherwise falls back to
-    /// the OOO or presence name.
+    /// the OOO or presence name. Uses `currentOrNextMeeting` so the
+    /// countdown picks the right meeting after a back-to-back transition.
     private var cornerLabel: String {
-        if let start = entry.snapshot?.nextMeetingStart {
-            return untilTime(start, referenceDate: entry.date)
+        if let meeting = entry.snapshot?.currentOrNextMeeting(referenceDate: entry.date) {
+            return untilTime(meeting.start, referenceDate: entry.date)
         }
         if let snapshot = entry.snapshot, snapshot.isOutOfOffice {
             return "Out of office"
@@ -132,23 +139,24 @@ struct WatchRectangularView: View {
     let entry: WatchStatusEntry
 
     var body: some View {
-        if let start = entry.snapshot?.nextMeetingStart,
-           let subject = entry.snapshot?.nextMeetingSubject,
-           let snapshot = entry.snapshot {
-            meetingLayout(start: start, subject: subject, snapshot: snapshot)
+        if let snapshot = entry.snapshot,
+           let meeting = snapshot.currentOrNextMeeting(referenceDate: entry.date) {
+            meetingLayout(meeting: meeting, snapshot: snapshot)
         } else if let snapshot = entry.snapshot {
             noMeetingLayout(snapshot: snapshot)
         }
     }
 
-    private func meetingLayout(start: Date, subject: String, snapshot: CheckInSnapshot) -> some View {
+    private func meetingLayout(meeting: SnapshotMeeting, snapshot: CheckInSnapshot) -> some View {
+        let start = meeting.start
+        let subject = meeting.subject
         let inProgress = start <= entry.date
         let imminent = isMeetingImminent(start, referenceDate: entry.date)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
                 Image(systemName: "calendar")
                     .foregroundStyle(inProgress ? .orange : Brand.accent)
-                Text(start, style: .time)
+                Text(meetingTimeRange(start: meeting.start, end: meeting.end))
                     .foregroundStyle(Brand.textMuted)
                 Spacer(minLength: 0)
                 presenceGlyph(for: snapshot)

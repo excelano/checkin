@@ -25,6 +25,10 @@ struct SummaryView: View {
     /// it drives a `.sheet(item:)`; on iPad (regular) it drives the
     /// split-view detail column instead.
     @State private var previewTarget: MessagePreviewTarget?
+    /// Reference clock that drives "which meeting is currently active"
+    /// recomputation. A background task nudges this every 30 seconds so
+    /// back-to-back meetings transition without waiting for a refresh.
+    @State private var clockTick: Date = .now
 
     /// iPad (regular width) gets a NavigationSplitView; iPhone (compact)
     /// keeps the single-column panel with sheet-based previews.
@@ -74,6 +78,16 @@ struct SummaryView: View {
         }
         .sheet(item: $conflictTarget) { target in
             ConflictResolutionSheet(inbox: inbox, primaryMeetingId: target.id)
+        }
+        .task {
+            // Re-evaluate "current meeting" every 30 seconds so a
+            // just-ended meeting transitions to the back-to-back one
+            // without waiting for the next Graph refresh. Cheap — the
+            // helpers read from already-cached state.
+            while !Task.isCancelled {
+                clockTick = .now
+                try? await Task.sleep(for: .seconds(30))
+            }
         }
     }
 
@@ -227,13 +241,21 @@ struct SummaryView: View {
             guard !key.isEmpty else { return }
             acc[key, default: 0] += 1
         }
+        // Pick the current meeting and the remaining "Later today" list
+        // from the cached meeting set using `clockTick` — a background
+        // task in `body` advances it every 30 seconds, so back-to-back
+        // meetings rotate cleanly without a refresh. Pass each meeting's
+        // explicit id to `respondToMeeting` so RSVPs target the rotated
+        // meeting, not whatever `nextMeeting` happens to be.
+        let activeMeeting = inbox.currentMeeting(at: clockTick)
+        let laterMeetings = inbox.remainingLaterToday(at: clockTick)
         return List {
-            if let meeting = inbox.nextMeeting {
+            if let meeting = activeMeeting {
                 Section {
                     MeetingCard(meeting: meeting,
                                 onTap: { joinOrCalendar(meeting) },
                                 onRsvp: { response in
-                                    Task { await inbox.respondToMeeting(response) }
+                                    Task { await inbox.respondToMeeting(response, meetingId: meeting.id) }
                                 },
                                 onConflictTap: { conflictTarget = meeting })
                         .listRowSeparator(.hidden)
@@ -244,9 +266,9 @@ struct SummaryView: View {
                         }
                 }
             }
-            if !inbox.laterToday.isEmpty {
+            if !laterMeetings.isEmpty {
                 Section {
-                    ForEach(inbox.laterToday) { meeting in
+                    ForEach(laterMeetings) { meeting in
                         LaterMeetingRow(meeting: meeting,
                                         onTap: { joinOrCalendar(meeting) },
                                         onConflictTap: { conflictTarget = meeting })
@@ -258,7 +280,7 @@ struct SummaryView: View {
                             }
                     }
                 } header: {
-                    sectionHeader(title: "Later today", count: inbox.laterToday.count)
+                    sectionHeader(title: "Later today", count: laterMeetings.count)
                 }
             }
             Section {

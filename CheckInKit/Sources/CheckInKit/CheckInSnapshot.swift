@@ -13,16 +13,48 @@ import WidgetKit
 ///
 /// Lives in CheckInKit so the app, the widget extension, and any future
 /// surface share one definition instead of byte-identical copies.
-/// A subordinate "later today" meeting carried alongside the next
-/// meeting in the snapshot. Just enough to render a tight list row —
-/// no organizer, no join URL.
+/// A meeting in the snapshot's today list. Carries enough for any
+/// surface to render it as either the active meeting or a later one,
+/// so the "current meeting" can advance through the cached list as
+/// time passes without a fresh refresh.
 public struct SnapshotMeeting: Codable, Hashable {
     public let subject: String
     public let start: Date
+    public let end: Date
+    public let organizer: String?
+    public let joinUrl: String?
 
-    public init(subject: String, start: Date) {
+    public init(
+        subject: String,
+        start: Date,
+        end: Date,
+        organizer: String? = nil,
+        joinUrl: String? = nil
+    ) {
         self.subject = subject
         self.start = start
+        self.end = end
+        self.organizer = organizer
+        self.joinUrl = joinUrl
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case subject, start, end, organizer, joinUrl
+    }
+
+    /// Backward-compat decode for snapshots written before `end`,
+    /// `organizer`, and `joinUrl` existed. `end` falls back to
+    /// `start + 30 min` so meetings still transition at approximately
+    /// the right moment during the upgrade window; the optional
+    /// fields fall back to nil.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        subject = try c.decode(String.self, forKey: .subject)
+        start = try c.decode(Date.self, forKey: .start)
+        end = try c.decodeIfPresent(Date.self, forKey: .end)
+            ?? start.addingTimeInterval(30 * 60)
+        organizer = try c.decodeIfPresent(String.self, forKey: .organizer)
+        joinUrl = try c.decodeIfPresent(String.self, forKey: .joinUrl)
     }
 }
 
@@ -33,6 +65,10 @@ public struct CheckInSnapshot: Codable {
     public let nextMeetingSubject: String?
     /// Start time of the next meeting, or nil if none remain.
     public let nextMeetingStart: Date?
+    /// End time of the next meeting, or nil if none remain or the
+    /// publisher predates the field. Used to advance the active
+    /// meeting through `laterMeetings` as time passes.
+    public let nextMeetingEnd: Date?
     /// Organizer name for the next meeting (drives the "with X" line).
     public let nextMeetingOrganizer: String?
     /// Teams join URL for the next meeting (drives the Join pill).
@@ -57,6 +93,7 @@ public struct CheckInSnapshot: Codable {
         updatedAt: Date,
         nextMeetingSubject: String?,
         nextMeetingStart: Date?,
+        nextMeetingEnd: Date?,
         nextMeetingOrganizer: String?,
         nextMeetingJoinUrl: String?,
         unreadEmailCount: Int,
@@ -68,6 +105,7 @@ public struct CheckInSnapshot: Codable {
         self.updatedAt = updatedAt
         self.nextMeetingSubject = nextMeetingSubject
         self.nextMeetingStart = nextMeetingStart
+        self.nextMeetingEnd = nextMeetingEnd
         self.nextMeetingOrganizer = nextMeetingOrganizer
         self.nextMeetingJoinUrl = nextMeetingJoinUrl
         self.unreadEmailCount = unreadEmailCount
@@ -81,6 +119,7 @@ public struct CheckInSnapshot: Codable {
         case updatedAt
         case nextMeetingSubject
         case nextMeetingStart
+        case nextMeetingEnd
         case nextMeetingOrganizer
         case nextMeetingJoinUrl
         case unreadEmailCount
@@ -90,15 +129,17 @@ public struct CheckInSnapshot: Codable {
         case laterMeetings
     }
 
-    /// Custom decode so a snapshot written before `laterMeetings` existed
-    /// still decodes — the field falls back to an empty array. Without
-    /// this, the watch (or any consumer) sitting on an older cached
-    /// payload would fail to load on the first launch after the upgrade.
+    /// Custom decode so a snapshot written before `laterMeetings` or
+    /// `nextMeetingEnd` existed still decodes — those fields fall back
+    /// to empty / nil. Without this, the watch (or any consumer)
+    /// sitting on an older cached payload would fail to load on the
+    /// first launch after the upgrade.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         nextMeetingSubject = try c.decodeIfPresent(String.self, forKey: .nextMeetingSubject)
         nextMeetingStart = try c.decodeIfPresent(Date.self, forKey: .nextMeetingStart)
+        nextMeetingEnd = try c.decodeIfPresent(Date.self, forKey: .nextMeetingEnd)
         nextMeetingOrganizer = try c.decodeIfPresent(String.self, forKey: .nextMeetingOrganizer)
         nextMeetingJoinUrl = try c.decodeIfPresent(String.self, forKey: .nextMeetingJoinUrl)
         unreadEmailCount = try c.decode(Int.self, forKey: .unreadEmailCount)
@@ -117,6 +158,7 @@ public struct CheckInSnapshot: Codable {
             updatedAt: updatedAt,
             nextMeetingSubject: nextMeetingSubject,
             nextMeetingStart: nextMeetingStart,
+            nextMeetingEnd: nextMeetingEnd,
             nextMeetingOrganizer: nextMeetingOrganizer,
             nextMeetingJoinUrl: nextMeetingJoinUrl,
             unreadEmailCount: unreadEmailCount,
@@ -125,6 +167,55 @@ public struct CheckInSnapshot: Codable {
             isOutOfOffice: isOutOfOffice,
             laterMeetings: laterMeetings
         )
+    }
+
+    /// Today's full meeting list reconstructed from the snapshot —
+    /// the original `nextMeeting*` fields packaged as a `SnapshotMeeting`,
+    /// followed by `laterMeetings` in chronological order. Empty when no
+    /// meetings were recorded. Internal building block for the helpers
+    /// that pick the currently-active meeting and the remaining list.
+    private func todayMeetings() -> [SnapshotMeeting] {
+        var all: [SnapshotMeeting] = []
+        if let subject = nextMeetingSubject, let start = nextMeetingStart {
+            let end = nextMeetingEnd ?? start.addingTimeInterval(30 * 60)
+            all.append(SnapshotMeeting(
+                subject: subject,
+                start: start,
+                end: end,
+                organizer: nextMeetingOrganizer,
+                joinUrl: nextMeetingJoinUrl
+            ))
+        }
+        all.append(contentsOf: laterMeetings)
+        return all
+    }
+
+    /// The meeting that's currently active or coming up next, given a
+    /// reference date. Walks `todayMeetings()` and returns the first
+    /// entry whose end is in the future. Lets surfaces advance through
+    /// the cached meeting list as the day progresses without needing
+    /// a fresh Graph refresh — back-to-back meetings transition the
+    /// moment the previous one ends.
+    public func currentOrNextMeeting(referenceDate: Date) -> SnapshotMeeting? {
+        todayMeetings().first { $0.end > referenceDate }
+    }
+
+    /// The meetings remaining after the currently-active or next one —
+    /// drives the "Later Today" list. Returns whatever's left in the
+    /// future-tense slice once the active meeting has been removed.
+    public func remainingLaterMeetings(referenceDate: Date) -> [SnapshotMeeting] {
+        let upcoming = todayMeetings().filter { $0.end > referenceDate }
+        return Array(upcoming.dropFirst())
+    }
+
+    /// Future meeting start times today, used by widget timeline
+    /// providers to add re-render entries at each transition point so
+    /// the widget swaps to the right meeting at the exact moment one
+    /// starts. Filters to dates strictly after `referenceDate`.
+    public func upcomingMeetingStartDates(after referenceDate: Date) -> [Date] {
+        todayMeetings()
+            .map(\.start)
+            .filter { $0 > referenceDate }
     }
 
     /// Decode the snapshot last written to an App Group, or nil if none

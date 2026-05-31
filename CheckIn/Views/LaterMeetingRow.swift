@@ -18,7 +18,7 @@ struct LaterMeetingRow: View {
                     Image(systemName: "calendar")
                         .foregroundStyle(Brand.accent)
                         .frame(width: 20)
-                    Text(formatTimeOfDay(meeting.start))
+                    Text(meetingTimeRange(start: meeting.start, end: meeting.end))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Brand.accent)
                     Text(meeting.subject)
@@ -31,7 +31,7 @@ struct LaterMeetingRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(formatTimeOfDay(meeting.start)): \(meeting.subject)")
+            .accessibilityLabel("\(meetingTimeRange(start: meeting.start, end: meeting.end)): \(meeting.subject)")
             .accessibilityHint("Join meeting in Teams")
 
             if meeting.hasConflict {

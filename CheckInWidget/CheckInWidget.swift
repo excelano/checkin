@@ -40,10 +40,22 @@ struct CheckInProvider: TimelineProvider {
         Task {
             let snapshot = await liveSnapshot()
             let now = Date()
+            var seen = Set<Date>()
             var entries: [CheckInEntry] = []
             for minute in 0...timelineHorizonMinutes {
                 let date = now.addingTimeInterval(TimeInterval(minute * 60))
                 entries.append(CheckInEntry(date: date, snapshot: snapshot))
+                seen.insert(date)
+            }
+            // Splice in extra entries at each upcoming meeting start so
+            // the meeting block flips to the right meeting at the exact
+            // transition moment rather than waiting for the next minute
+            // boundary. Skip any that already fall on a minute tick.
+            if let snapshot {
+                for date in snapshot.upcomingMeetingStartDates(after: now) where !seen.contains(date) {
+                    entries.append(CheckInEntry(date: date, snapshot: snapshot))
+                }
+                entries.sort { $0.date < $1.date }
             }
             completion(Timeline(entries: entries, policy: .atEnd))
         }
@@ -83,6 +95,7 @@ struct CheckInProvider: TimelineProvider {
             updatedAt: Date(),
             nextMeetingSubject: "Status Meeting",
             nextMeetingStart: Date().addingTimeInterval(30 * 60),
+            nextMeetingEnd: Date().addingTimeInterval(60 * 60),
             nextMeetingOrganizer: "David Anderson",
             nextMeetingJoinUrl: "https://teams.microsoft.com/l/meetup-join/preview",
             unreadEmailCount: 5,
@@ -123,28 +136,32 @@ struct CheckInWidgetEntryView: View {
     /// (dropping the organizer). In-person meetings (no join URL) keep showing
     /// the time + organizer.
     @ViewBuilder
-    private func meetingDetailLine(start: Date) -> some View {
-        let secondsToStart = start.timeIntervalSince(entry.date)
+    private func meetingDetailLine(_ meeting: SnapshotMeeting) -> some View {
+        let secondsToStart = meeting.start.timeIntervalSince(entry.date)
         if secondsToStart <= joinPillLeadTime,
-           let urlString = entry.snapshot?.nextMeetingJoinUrl,
+           let urlString = meeting.joinUrl,
            let url = teamsJoinURL(from: urlString) {
             joinPill(url: url)
         } else {
-            organizerLine(start: start, organizer: entry.snapshot?.nextMeetingOrganizer)
+            organizerLine(start: meeting.start, organizer: meeting.organizer)
         }
     }
 
     @ViewBuilder
     private var meetingBlock: some View {
-        if let subject = entry.snapshot?.nextMeetingSubject,
-           let start = entry.snapshot?.nextMeetingStart {
-            meetingHeader(start: start)
-            Text(subject)
+        // Pick the currently-active or next meeting from the cached
+        // today list using the entry's date — back-to-back meetings
+        // transition at the per-minute timeline tick without needing
+        // a refresh.
+        if let snapshot = entry.snapshot,
+           let meeting = snapshot.currentOrNextMeeting(referenceDate: entry.date) {
+            meetingHeader(meeting)
+            Text(meeting.subject)
                 .font(.headline)
                 .foregroundStyle(.white)
                 .lineLimit(2)
                 .truncationMode(.tail)
-            meetingDetailLine(start: start)
+            meetingDetailLine(meeting)
         } else if entry.snapshot != nil {
             Text("No more meetings today.")
                 .font(.headline)
@@ -164,14 +181,16 @@ struct CheckInWidgetEntryView: View {
     /// "NEXT MEETING" until the meeting starts, then "IN PROGRESS" once
     /// `start` is at or before the entry's date. The label is computed against
     /// `entry.date`, so the per-minute timeline flips it on its own without a
-    /// refetch. In progress reads orange to signal the meeting is live.
-    private func meetingHeader(start: Date) -> some View {
-        let inProgress = start <= entry.date
+    /// refetch. In progress reads orange to signal the meeting is live. The
+    /// time renders as a start-end range so the user sees the meeting's
+    /// shape at a glance.
+    private func meetingHeader(_ meeting: SnapshotMeeting) -> some View {
+        let inProgress = meeting.start <= entry.date
         return HStack(spacing: 6) {
             Text(inProgress ? "IN PROGRESS" : "NEXT MEETING")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(inProgress ? .orange : Brand.accent)
-            Text(start, style: .time)
+            Text(meetingTimeRange(start: meeting.start, end: meeting.end))
                 .font(.subheadline)
                 .foregroundStyle(Brand.textMuted)
         }
@@ -340,6 +359,7 @@ struct CheckInWidget: Widget {
             updatedAt: .now,
             nextMeetingSubject: "Status Meeting",
             nextMeetingStart: .now.addingTimeInterval(8 * 60),
+            nextMeetingEnd: .now.addingTimeInterval(38 * 60),
             nextMeetingOrganizer: "David Anderson",
             nextMeetingJoinUrl: "https://teams.microsoft.com/l/meetup-join/preview",
             unreadEmailCount: 5,
@@ -354,6 +374,7 @@ struct CheckInWidget: Widget {
             updatedAt: .now,
             nextMeetingSubject: nil,
             nextMeetingStart: nil,
+            nextMeetingEnd: nil,
             nextMeetingOrganizer: nil,
             nextMeetingJoinUrl: nil,
             unreadEmailCount: 0,

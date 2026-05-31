@@ -106,41 +106,14 @@ struct WatchGlanceView: View {
 
     @ViewBuilder
     private var meetingLine: some View {
-        if let snapshot = receiver.snapshot,
-           let start = snapshot.nextMeetingStart,
-           let subject = snapshot.nextMeetingSubject {
+        if let snapshot = receiver.snapshot {
             TimelineView(.periodic(from: .now, by: 15)) { context in
-                let inProgress = start <= context.date
-                let imminent = isMeetingImminent(start, referenceDate: context.date)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "calendar")
-                            .foregroundStyle(inProgress ? .orange : Brand.accent)
-                        Text(start, style: .time)
-                            .foregroundStyle(Brand.textMuted)
-                        Spacer()
-                        presenceIcon
-                    }
-                    .font(.caption2.weight(.semibold))
-                    Text(subject)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(2)
-                    Text(untilTime(start, referenceDate: context.date))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(imminent || inProgress ? .orange : Brand.accent)
-                        .lineLimit(1)
+                if let meeting = snapshot.currentOrNextMeeting(referenceDate: context.date) {
+                    meetingBlock(meeting: meeting, referenceDate: context.date)
+                } else {
+                    noMeetingRow
                 }
             }
-        } else if receiver.snapshot != nil {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar")
-                    .foregroundStyle(Brand.accent)
-                Text("No meetings")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                presenceIcon
-            }
-            .font(.caption2.weight(.semibold))
         } else {
             HStack(spacing: 4) {
                 Text("Waiting for phone")
@@ -150,6 +123,41 @@ struct WatchGlanceView: View {
                 presenceIcon
             }
         }
+    }
+
+    private func meetingBlock(meeting: SnapshotMeeting, referenceDate: Date) -> some View {
+        let inProgress = meeting.start <= referenceDate
+        let imminent = isMeetingImminent(meeting.start, referenceDate: referenceDate)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: "calendar")
+                    .foregroundStyle(inProgress ? .orange : Brand.accent)
+                Text(meetingTimeRange(start: meeting.start, end: meeting.end))
+                    .foregroundStyle(Brand.textMuted)
+                Spacer()
+                presenceIcon
+            }
+            .font(.caption2.weight(.semibold))
+            Text(meeting.subject)
+                .font(.caption.weight(.semibold))
+                .lineLimit(2)
+            Text(untilTime(meeting.start, referenceDate: referenceDate))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(imminent || inProgress ? .orange : Brand.accent)
+                .lineLimit(1)
+        }
+    }
+
+    private var noMeetingRow: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "calendar")
+                .foregroundStyle(Brand.accent)
+            Text("No meetings")
+                .foregroundStyle(.secondary)
+            Spacer()
+            presenceIcon
+        }
+        .font(.caption2.weight(.semibold))
     }
 
     /// Counts row pinned below the ScrollView so it stays visible as the
@@ -206,21 +214,24 @@ struct WatchGlanceView: View {
 
     @ViewBuilder
     private var laterTodaySection: some View {
-        if let snapshot = receiver.snapshot, !snapshot.laterMeetings.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Divider()
-                Text("LATER TODAY")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Brand.textMuted)
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(snapshot.laterMeetings, id: \.self) { meeting in
-                            laterRow(meeting: meeting, referenceDate: context.date)
+        if let snapshot = receiver.snapshot {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                let later = snapshot.remainingLaterMeetings(referenceDate: context.date)
+                if !later.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Divider()
+                        Text("LATER TODAY")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Brand.textMuted)
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(later, id: \.self) { meeting in
+                                laterRow(meeting: meeting, referenceDate: context.date)
+                            }
                         }
                     }
+                    .padding(.top, 2)
                 }
             }
-            .padding(.top, 2)
         }
     }
 
@@ -228,7 +239,7 @@ struct WatchGlanceView: View {
         let live = meeting.start <= referenceDate
             || isMeetingImminent(meeting.start, referenceDate: referenceDate)
         return HStack(spacing: 6) {
-            Text(meeting.start, style: .time)
+            Text(meetingTimeRange(start: meeting.start, end: meeting.end, includePeriod: false))
                 .foregroundStyle(live ? .orange : Brand.accent)
                 .monospacedDigit()
                 .layoutPriority(1)

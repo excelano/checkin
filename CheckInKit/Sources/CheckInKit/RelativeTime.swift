@@ -40,3 +40,36 @@ public func isMeetingImminent(_ date: Date, referenceDate: Date) -> Bool {
     let seconds = date.timeIntervalSince(referenceDate)
     return seconds >= 0 && seconds <= 180
 }
+
+/// Compact meeting time range in 12-hour US format, e.g. "9-9:30 PM"
+/// when both ends fall in the same period, or "11:30 AM-12:30 PM" when
+/// the meeting crosses noon (or midnight). Drops `:00` for on-the-hour
+/// times so "9-10 PM" reads cleaner than "9:00-10:00 PM". Pass
+/// `includePeriod: false` to drop the AM/PM marker entirely — used on
+/// the watch glance's "Later today" rows where width is tight and the
+/// user's mental model of "today" already pins the period.
+public func meetingTimeRange(start: Date, end: Date, includePeriod: Bool = true) -> String {
+    let cal = Calendar.current
+    let startHour = cal.component(.hour, from: start)
+    let startMinute = cal.component(.minute, from: start)
+    let endHour = cal.component(.hour, from: end)
+    let endMinute = cal.component(.minute, from: end)
+    let startPM = startHour >= 12
+    let endPM = endHour >= 12
+    let startHour12 = (startHour % 12 == 0) ? 12 : startHour % 12
+    let endHour12 = (endHour % 12 == 0) ? 12 : endHour % 12
+    let startStr = startMinute == 0
+        ? "\(startHour12)"
+        : "\(startHour12):" + String(format: "%02d", startMinute)
+    let endStr = endMinute == 0
+        ? "\(endHour12)"
+        : "\(endHour12):" + String(format: "%02d", endMinute)
+    guard includePeriod else {
+        return "\(startStr)-\(endStr)"
+    }
+    if startPM == endPM {
+        let period = endPM ? "PM" : "AM"
+        return "\(startStr)-\(endStr) \(period)"
+    }
+    return "\(startStr) \(startPM ? "PM" : "AM")-\(endStr) \(endPM ? "PM" : "AM")"
+}

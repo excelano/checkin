@@ -41,6 +41,7 @@ struct CheckInSnapshotTests {
         updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
         nextMeetingSubject: "Status sync",
         nextMeetingStart: Date(timeIntervalSince1970: 1_700_001_000),
+        nextMeetingEnd: Date(timeIntervalSince1970: 1_700_002_800),
         nextMeetingOrganizer: "David",
         nextMeetingJoinUrl: "https://teams.microsoft.com/l/meetup-join/preview",
         unreadEmailCount: 7,
@@ -59,6 +60,7 @@ struct CheckInSnapshotTests {
         #expect(decoded.updatedAt == Self.sample.updatedAt)
         #expect(decoded.nextMeetingSubject == Self.sample.nextMeetingSubject)
         #expect(decoded.nextMeetingStart == Self.sample.nextMeetingStart)
+        #expect(decoded.nextMeetingEnd == Self.sample.nextMeetingEnd)
         #expect(decoded.nextMeetingOrganizer == Self.sample.nextMeetingOrganizer)
         #expect(decoded.nextMeetingJoinUrl == Self.sample.nextMeetingJoinUrl)
         #expect(decoded.unreadEmailCount == Self.sample.unreadEmailCount)
