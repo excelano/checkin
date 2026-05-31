@@ -25,11 +25,7 @@ struct NextMeetingIntent: AppIntent {
         _ = try await authService.acquireTokenSilentlyNoInteraction(enableTeams: Constants.teamsEnabled)
         await inbox.refresh()
 
-        guard let meeting = inbox.nextMeeting else {
-            return .result(dialog: "You have no more meetings today.")
-        }
-        let time = meeting.start.formatted(date: .omitted, time: .shortened)
-        let dialog: IntentDialog = "Your next meeting is \(meeting.subject) at \(time)."
+        let dialog: IntentDialog = "\(IntentSpeech.nextMeeting(inbox.nextMeeting))"
         return .result(dialog: dialog)
     }
 }

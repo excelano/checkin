@@ -1,4 +1,4 @@
-// SetStatusIntent.swift
+// SetPresenceIntent.swift
 // SharedIntents
 // Author: David M. Anderson
 // Built with AI assistance (Claude, Anthropic)
@@ -22,14 +22,14 @@ import CheckInKit
 /// only takes visible effect when a Teams desktop session exists. Graph
 /// returns success regardless, so this intent reports success the same
 /// way the in-app picker does.
-struct SetStatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "Set Status"
+struct SetPresenceIntent: AppIntent {
+    static var title: LocalizedStringResource = "Set Presence"
     static var description = IntentDescription(
         "Set your Microsoft 365 status, or reset it to automatic."
     )
     static var openAppWhenRun = false
 
-    @Parameter(title: "Status")
+    @Parameter(title: "Presence")
     var status: StatusAppEnum
 
     @Dependency var actions: StatusActions
@@ -41,7 +41,7 @@ struct SetStatusIntent: AppIntent {
     }
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Set my status to \(\.$status)")
+        Summary("Set my presence to \(\.$status)")
     }
 
     @MainActor

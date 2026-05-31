@@ -283,7 +283,7 @@ struct CheckInWidgetEntryView: View {
                 .frame(height: 1)
             Toggle(
                 isOn: isAvailable,
-                intent: SetStatusIntent(status: isAvailable ? .busy : .available)
+                intent: SetPresenceIntent(status: isAvailable ? .busy : .available)
             ) {
                 HStack(spacing: 6) {
                     if isOutOfOffice {

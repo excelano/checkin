@@ -59,7 +59,7 @@ private func statusControl(
     description: LocalizedStringResource
 ) -> some ControlWidgetConfiguration {
     StaticControlConfiguration(kind: kind) {
-        ControlWidgetButton(action: SetStatusIntent(status: status)) {
+        ControlWidgetButton(action: SetPresenceIntent(status: status)) {
             Label(label, systemImage: systemImage)
         }
         .tint(tint)

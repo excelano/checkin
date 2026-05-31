@@ -28,7 +28,7 @@ public enum StatusActionError: LocalizedError {
 /// AppIntents keys `@Dependency` by the value's concrete type, not by a
 /// protocol existential, so the intents depend on this box rather than a
 /// protocol (a protocol-typed `@Dependency` never resolves and traps at
-/// access). The box lives in CheckInKit so `SetStatusIntent` /
+/// access). The box lives in CheckInKit so `SetPresenceIntent` /
 /// `SetOutOfOfficeIntent` can reference it without importing the app's
 /// `Inbox`. The app builds one from its `Inbox` and registers it in
 /// `CheckInApp.init`; the widget extension registers its own (wired to a

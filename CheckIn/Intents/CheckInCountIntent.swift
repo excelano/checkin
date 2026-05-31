@@ -42,10 +42,10 @@ struct CheckInCountIntent: AppIntent {
         switch metric {
         case .unreadEmails:
             let n = inbox.unreadEmailCount
-            return .result(value: n, dialog: count(n, "unread email", "unread emails"))
+            return .result(value: n, dialog: "\(IntentSpeech.count(n, singular: "unread email", plural: "unread emails"))")
         case .unreadChats:
             let n = inbox.unreadChatCount
-            return .result(value: n, dialog: count(n, "unread chat", "unread chats"))
+            return .result(value: n, dialog: "\(IntentSpeech.count(n, singular: "unread chat", plural: "unread chats"))")
         case .remainingMeetings:
             let n = inbox.remainingMeetingCount
             let dialog: IntentDialog = switch n {
@@ -57,30 +57,7 @@ struct CheckInCountIntent: AppIntent {
         case .unreadMessages:
             let emails = inbox.unreadEmailCount
             let chats = inbox.unreadChatCount
-            return .result(value: emails + chats, dialog: combinedDialog(emails: emails, chats: chats))
-        }
-    }
-
-    private func count(_ n: Int, _ singular: String, _ plural: String) -> IntentDialog {
-        switch n {
-        case 0: return "You have no \(plural)."
-        case 1: return "You have 1 \(singular)."
-        default: return "You have \(n) \(plural)."
-        }
-    }
-
-    private func combinedDialog(emails: Int, chats: Int) -> IntentDialog {
-        switch (emails, chats) {
-        case (0, 0):
-            return "You're all caught up — no unread messages."
-        case (let e, 0):
-            return count(e, "unread email", "unread emails")
-        case (0, let c):
-            return count(c, "unread chat", "unread chats")
-        default:
-            let e = emails == 1 ? "1 email" : "\(emails) emails"
-            let c = chats == 1 ? "1 chat" : "\(chats) chats"
-            return "You have \(emails + chats) unread messages: \(e) and \(c)."
+            return .result(value: emails + chats, dialog: "\(IntentSpeech.unreadMessages(emails: emails, chats: chats))")
         }
     }
 }
