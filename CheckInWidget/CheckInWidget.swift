@@ -179,7 +179,7 @@ struct CheckInWidgetEntryView: View {
                 .truncationMode(.tail)
             meetingBottomRow(meeting)
         } else if entry.snapshot != nil {
-            Text("No more meetings today.")
+            Text("No more meetings today")
                 .font(.headline)
                 .foregroundStyle(.white)
                 .lineLimit(1)
