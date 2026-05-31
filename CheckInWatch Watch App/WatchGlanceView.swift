@@ -17,6 +17,8 @@ struct WatchGlanceView: View {
     let receiver: WatchSessionReceiver
     @State private var showingPicker: Bool = false
     @State private var pendingAction: Bool = false
+    @State private var showUnreachableToast: Bool = false
+    @State private var refreshing: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,6 +31,17 @@ struct WatchGlanceView: View {
             }
             pinnedCountsRow
         }
+        .overlay(alignment: .top) {
+            if showUnreachableToast {
+                Text("Phone unreachable")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: .capsule)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showUnreachableToast)
         .sheet(isPresented: $showingPicker) {
             PresencePickerSheet(
                 currentPresence: receiver.snapshot?.presence ?? .unknown,
@@ -139,17 +152,42 @@ struct WatchGlanceView: View {
     /// Counts row pinned below the ScrollView so it stays visible as the
     /// user scrolls the meeting list. Sits outside the scroll surface
     /// and trades a small slice of scroll height for always-on context.
+    /// The refresh button on the leading edge asks the phone for fresh
+    /// data — the icon swaps to a spinner while the round-trip is in
+    /// flight, and a brief "Phone unreachable" toast surfaces when the
+    /// phone can't be reached or the snapshot doesn't arrive in time.
     @ViewBuilder
     private var pinnedCountsRow: some View {
-        if let snapshot = receiver.snapshot {
-            HStack(spacing: 10) {
-                Spacer()
+        HStack(spacing: 10) {
+            refreshButton
+            Spacer()
+            if let snapshot = receiver.snapshot {
                 countChip(symbol: "envelope.fill", value: snapshot.unreadEmailCount)
                 countChip(symbol: "bubble.left.fill", value: snapshot.chatCount)
             }
-            .padding(.horizontal, 4)
-            .padding(.top, 4)
         }
+        .padding(.horizontal, 4)
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var refreshButton: some View {
+        Button {
+            Task { await handleRefresh() }
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.gray)
+                .opacity(refreshing ? 0 : 1)
+                .overlay {
+                    if refreshing {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(refreshing)
     }
 
     private func countChip(symbol: String, value: Int) -> some View {
@@ -206,6 +244,25 @@ struct WatchGlanceView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
             pendingAction = false
+        }
+    }
+
+    /// Drives the refresh button. Flips the icon to a spinner while the
+    /// round-trip is in flight; surfaces a brief "Phone unreachable"
+    /// hint when the watch can't talk to the phone or the fresh
+    /// snapshot never arrives.
+    @MainActor
+    private func handleRefresh() async {
+        refreshing = true
+        defer { refreshing = false }
+        let result = await receiver.sendRefreshRequest()
+        switch result {
+        case .refreshed:
+            break
+        case .phoneUnreachable, .timedOut:
+            showUnreachableToast = true
+            try? await Task.sleep(for: .seconds(2))
+            showUnreachableToast = false
         }
     }
 }

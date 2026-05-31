@@ -35,7 +35,8 @@ struct CheckInApp: App {
         // mutate-then-revert path, same snapshot patch on completion.
         inbox.phoneConnectivity = PhoneConnectivity(
             setPresence: { [inbox] in try await inbox.applyPresence($0) },
-            setOutOfOffice: { [inbox] in try await inbox.applyOutOfOffice($0) }
+            setOutOfOffice: { [inbox] in try await inbox.applyOutOfOffice($0) },
+            refresh: { [inbox] in await inbox.refresh() }
         )
         UNUserNotificationCenter.current().delegate = NotificationCenterDelegate.shared
         // Expose the live services to App Intents. The system runs this

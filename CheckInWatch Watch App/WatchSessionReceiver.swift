@@ -63,6 +63,55 @@ final class WatchSessionReceiver: NSObject {
         ])
     }
 
+    /// Outcome of a watch-initiated refresh request, used by the glance
+    /// to decide whether to surface a "Phone unreachable" hint after
+    /// the pull-to-refresh spinner finishes.
+    enum RefreshResult {
+        /// A fresh snapshot landed before the wait window expired.
+        case refreshed
+        /// The phone isn't reachable right now — there's no way to ask
+        /// it to refresh until the link comes back.
+        case phoneUnreachable
+        /// The request was sent but no fresh snapshot arrived inside
+        /// the wait window. Treated like unreachable from the user's
+        /// perspective: the data on screen hasn't moved.
+        case timedOut
+    }
+
+    /// Ask the phone for a fresh refresh. Returns when a new snapshot
+    /// lands (detected by the `updatedAt` advancing), when the wait
+    /// window expires, or immediately when the phone isn't reachable.
+    /// Drives the glance's `.refreshable` modifier — its spinner stays
+    /// up until this returns, so the user sees it stop exactly when
+    /// fresh data arrives.
+    @MainActor
+    func sendRefreshRequest() async -> RefreshResult {
+        guard WCSession.isSupported() else { return .phoneUnreachable }
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isReachable else {
+            return .phoneUnreachable
+        }
+        let before = snapshot?.updatedAt
+        session.sendMessage(
+            [WireKey.actionKind: ActionKind.refresh.rawValue],
+            replyHandler: nil,
+            errorHandler: { [weak self] error in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.logger.error("refresh sendMessage failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        )
+        let start = Date()
+        while Date().timeIntervalSince(start) < 10 {
+            if let updatedAt = snapshot?.updatedAt, updatedAt != before {
+                return .refreshed
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        return .timedOut
+    }
+
     private func send(_ payload: [String: Any]) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
@@ -108,6 +157,7 @@ final class WatchSessionReceiver: NSObject {
     enum ActionKind: String {
         case setPresence
         case setOutOfOffice
+        case refresh
     }
 }
 

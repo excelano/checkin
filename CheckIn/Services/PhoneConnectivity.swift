@@ -22,14 +22,17 @@ import os
 final class PhoneConnectivity: NSObject {
     private let setPresence: (Presence) async throws -> Void
     private let setOutOfOffice: (Bool) async throws -> Void
+    private let refresh: () async -> Void
     private let logger = Logger(subsystem: "com.excelano.checkin", category: "phone-connectivity")
 
     init(
         setPresence: @escaping (Presence) async throws -> Void,
-        setOutOfOffice: @escaping (Bool) async throws -> Void
+        setOutOfOffice: @escaping (Bool) async throws -> Void,
+        refresh: @escaping () async -> Void
     ) {
         self.setPresence = setPresence
         self.setOutOfOffice = setOutOfOffice
+        self.refresh = refresh
         super.init()
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
@@ -99,6 +102,14 @@ final class PhoneConnectivity: NSObject {
                     self.logger.error("setOutOfOffice from watch failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
+        case .refresh:
+            // The watch is asking for fresh data. Run the same refresh
+            // path the foreground app uses; `Inbox.refresh()` ends by
+            // calling `publishStatusSnapshot()`, which the watch sees
+            // arrive as the updated `updatedAt` on its end.
+            Task { @MainActor in
+                await self.refresh()
+            }
         }
     }
 
@@ -112,6 +123,7 @@ final class PhoneConnectivity: NSObject {
     enum ActionKind: String {
         case setPresence
         case setOutOfOffice
+        case refresh
     }
 }
 
