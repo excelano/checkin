@@ -40,23 +40,17 @@ struct CheckInProvider: TimelineProvider {
         Task {
             let snapshot = await liveSnapshot()
             let now = Date()
-            var seen = Set<Date>()
-            var entries: [CheckInEntry] = []
-            for minute in 0...timelineHorizonMinutes {
-                let date = now.addingTimeInterval(TimeInterval(minute * 60))
-                entries.append(CheckInEntry(date: date, snapshot: snapshot))
-                seen.insert(date)
-            }
-            // Splice in extra entries at each upcoming meeting start so
-            // the meeting block flips to the right meeting at the exact
-            // transition moment rather than waiting for the next minute
-            // boundary. Skip any that already fall on a minute tick.
-            if let snapshot {
-                for date in snapshot.upcomingMeetingStartDates(after: now) where !seen.contains(date) {
-                    entries.append(CheckInEntry(date: date, snapshot: snapshot))
-                }
-                entries.sort { $0.date < $1.date }
-            }
+            // One entry per minute to the horizon so the "in N min"
+            // countdown stays accurate, plus an entry at each upcoming
+            // meeting start so the meeting block flips at the exact
+            // transition. Shared with the watch widget via
+            // `countdownTimelineDates`.
+            let dates = countdownTimelineDates(
+                from: now,
+                horizonMinutes: timelineHorizonMinutes,
+                meetingStarts: snapshot?.upcomingMeetingStartDates(after: now) ?? []
+            )
+            let entries = dates.map { CheckInEntry(date: $0, snapshot: snapshot) }
             completion(Timeline(entries: entries, policy: .atEnd))
         }
     }

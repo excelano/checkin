@@ -7,9 +7,9 @@ import Foundation
 
 /// Format the gap from `referenceDate` to a future `date` as a human
 /// phrase: "now", "soon", "in N min", "in N hour(s)", "in Nh Mm".
-/// The widget passes the timeline entry's date so the countdown stays
-/// correct across pre-generated entries; the in-app surface passes
-/// `.now` and re-renders periodically.
+/// The widget passes the timeline entry's date so the countdown advances
+/// across the per-minute entries `countdownTimelineDates` generates; the
+/// in-app surface passes `.now` and re-renders periodically.
 public func untilTime(_ date: Date, referenceDate: Date) -> String {
     let seconds = date.timeIntervalSince(referenceDate)
 
@@ -31,6 +31,25 @@ public func untilTime(_ date: Date, referenceDate: Date) -> String {
         return hours == 1 ? "in 1 hour" : "in \(hours) hours"
     }
     return "in \(hours)h \(minutes)m"
+}
+
+/// Timeline entry dates for a countdown widget: one entry per minute from
+/// `now` out to `horizonMinutes`, plus each meeting start so the display
+/// flips to the right meeting at the exact transition rather than waiting
+/// for the next minute tick. Sorted ascending and de-duplicated. Shared by
+/// the iPhone and watch timeline providers so their "in N min" countdowns
+/// advance identically and can't drift apart (the watch provider once
+/// emitted only the meeting-start entries, which froze the countdown
+/// between reloads).
+public func countdownTimelineDates(from now: Date, horizonMinutes: Int, meetingStarts: [Date]) -> [Date] {
+    var dates = Set<Date>()
+    for minute in 0...horizonMinutes {
+        dates.insert(now.addingTimeInterval(TimeInterval(minute * 60)))
+    }
+    for start in meetingStarts {
+        dates.insert(start)
+    }
+    return dates.sorted()
 }
 
 /// True when the meeting starts within the next three minutes of

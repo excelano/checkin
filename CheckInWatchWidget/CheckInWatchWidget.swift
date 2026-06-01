@@ -7,6 +7,10 @@ import CheckInKit
 import SwiftUI
 import WidgetKit
 
+/// Furthest minute the timeline pre-renders, so the "in N min" countdown
+/// updates without a fresh snapshot push until the 15-minute reload tick.
+private let timelineHorizonMinutes = 60
+
 /// Timeline entry holding the watch-side snapshot. Nil when the phone
 /// hasn't pushed a snapshot yet (fresh install, paired-but-never-synced).
 struct WatchStatusEntry: TimelineEntry {
@@ -29,17 +33,17 @@ struct WatchStatusProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<WatchStatusEntry>) -> Void) {
         let snapshot = load()
         let now = Date()
-        // Always emit a "now" entry, then one at each upcoming meeting
-        // start so the widget swaps to the next meeting at the exact
-        // moment one ends and another begins back-to-back. Without
-        // these explicit transition entries, the widget would sit on
-        // a stale meeting until the 15-minute reload tick.
-        var entries: [WatchStatusEntry] = [WatchStatusEntry(date: now, snapshot: snapshot)]
-        if let snapshot {
-            for date in snapshot.upcomingMeetingStartDates(after: now) {
-                entries.append(WatchStatusEntry(date: date, snapshot: snapshot))
-            }
-        }
+        // One entry per minute out to the horizon (so the "in N min"
+        // countdown ticks down between reloads) plus an entry at each
+        // upcoming meeting start (so the widget swaps to the next meeting
+        // the moment one ends and another begins back-to-back). Shared
+        // with the iPhone widget via `countdownTimelineDates`.
+        let dates = countdownTimelineDates(
+            from: now,
+            horizonMinutes: timelineHorizonMinutes,
+            meetingStarts: snapshot?.upcomingMeetingStartDates(after: now) ?? []
+        )
+        let entries = dates.map { WatchStatusEntry(date: $0, snapshot: snapshot) }
         let next = now.addingTimeInterval(15 * 60)
         completion(Timeline(entries: entries, policy: .after(next)))
     }
