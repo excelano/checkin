@@ -1,0 +1,9 @@
+// Version.xcconfig
+// Single source of truth for the app's marketing version and build number.
+// Every target inherits these through the project-level base configuration,
+// so a release bump is a one-line edit here. Do NOT re-declare
+// MARKETING_VERSION or CURRENT_PROJECT_VERSION in any target's build settings,
+// or the target override will shadow this file and the surfaces will drift.
+
+MARKETING_VERSION = 1.1.1
+CURRENT_PROJECT_VERSION = 5
