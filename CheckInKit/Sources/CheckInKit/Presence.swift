@@ -72,4 +72,27 @@ public enum Presence: String, Codable, Hashable {
         default: return graphAvailability
         }
     }
+
+    /// The filled SF Symbol that depicts this presence as a "colored circle
+    /// with a glyph" (see `PresenceGlyph`). The single source of truth for
+    /// presence iconography: `PresenceGlyph` renders it directly, the Control
+    /// Center buttons reuse it, and the watch corner complication derives its
+    /// punched-out form by dropping the `.circle.fill` suffix.
+    public var glyphSymbolName: String {
+        switch self {
+        case .available: return "checkmark.circle.fill"
+        case .busy, .doNotDisturb: return "minus.circle.fill"
+        case .beRightBack, .away: return "clock.fill"
+        case .offline: return "xmark.circle.fill"
+        case .unknown: return "questionmark.circle.fill"
+        }
+    }
+
+    /// The presences a user can explicitly choose, in display order. Shared by
+    /// the iPhone presence menu, the watch picker, and the Shortcuts enums so
+    /// the option list can't drift between surfaces. Excludes `.unknown`,
+    /// which is "reset to automatic" rather than a state to pick directly.
+    public static let settableStates: [Presence] = [
+        .available, .busy, .doNotDisturb, .beRightBack, .away, .offline
+    ]
 }

@@ -19,33 +19,23 @@ public struct PresenceGlyph: View {
     }
 
     public var body: some View {
+        // Symbol and tint come from `Presence` (the single source of truth);
+        // only the palette wiring lives here. Busy and DND deliberately share
+        // the same minus-on-red glyph: Microsoft gives DND a glyph and leaves
+        // Busy bare, which makes their icon set inconsistent, so CheckIn uses
+        // a uniform "colored circle with a glyph" and lets the adjacent label
+        // tell the two apart.
         switch presence {
-        case .available:
-            Image(systemName: "checkmark.circle.fill")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.black, .green)
-        case .busy, .doNotDisturb:
-            // Busy and DND share the same minus-on-red glyph. Microsoft
-            // distinguishes them by giving DND a glyph and leaving Busy
-            // bare, which makes their icon set inconsistent across
-            // statuses; CheckIn prefers a uniform "colored circle with
-            // a glyph" treatment and relies on the adjacent label to
-            // tell the two apart.
-            Image(systemName: "minus.circle.fill")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.black, .red)
         case .beRightBack, .away:
-            Image(systemName: "clock.fill")
+            // A clock is a single-layer symbol, so it renders monochrome in
+            // the presence tint rather than as a glyph punched into a circle.
+            Image(systemName: presence.glyphSymbolName)
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(.yellow)
-        case .offline:
-            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(presence.tint)
+        default:
+            Image(systemName: presence.glyphSymbolName)
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(.black, .gray)
-        case .unknown:
-            Image(systemName: "questionmark.circle.fill")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.black, .gray)
+                .foregroundStyle(.black, presence.tint)
         }
     }
 }

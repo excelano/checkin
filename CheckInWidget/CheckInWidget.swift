@@ -286,13 +286,8 @@ struct CheckInWidgetEntryView: View {
                 intent: SetPresenceIntent(status: isAvailable ? .busy : .available)
             ) {
                 HStack(spacing: 6) {
-                    if isOutOfOffice {
-                        OutOfOfficeGlyph()
-                            .font(.subheadline)
-                    } else {
-                        PresenceGlyph(presence)
-                            .font(.subheadline)
-                    }
+                    StatusGlyph(presence: presence, isOutOfOffice: isOutOfOffice)
+                        .font(.subheadline)
                     Text(isOutOfOffice ? "Out of Office" : presence.displayName)
                         .font(.subheadline)
                         .foregroundStyle(.white)

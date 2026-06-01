@@ -68,7 +68,7 @@ struct WatchCornerView: View {
             Image(systemName: "clock.fill")
                 .font(.system(size: 32, weight: .semibold))
         } else {
-            cornerBadge(cornerSymbol(for: entry.snapshot?.presence ?? .unknown))
+            cornerBadge(cutoutSymbol(for: entry.snapshot?.presence ?? .unknown))
         }
     }
 
@@ -105,16 +105,12 @@ struct WatchCornerView: View {
             .frame(width: 32, height: 32)
     }
 
-    /// BRB and Away are handled above with a bare `clock.fill` outside
-    /// the cutout badge, so they fall through to the question mark here
-    /// (defensive; they never actually reach this branch).
-    private func cornerSymbol(for presence: Presence) -> String {
-        switch presence {
-        case .available: return "checkmark"
-        case .busy, .doNotDisturb: return "minus"
-        case .offline: return "xmark"
-        case .beRightBack, .away, .unknown: return "questionmark"
-        }
+    /// The bare symbol to punch out of the cutout badge, derived from the
+    /// canonical `glyphSymbolName` by dropping the `.circle.fill` so the
+    /// corner stays in sync with `PresenceGlyph`. BRB and Away are handled
+    /// above with a bare `clock.fill`, so they never reach this path.
+    private func cutoutSymbol(for presence: Presence) -> String {
+        presence.glyphSymbolName.replacingOccurrences(of: ".circle.fill", with: "")
     }
 }
 
@@ -229,17 +225,10 @@ struct WatchRectangularView: View {
         }
     }
 
-    @ViewBuilder
     private func presenceGlyph(for snapshot: CheckInSnapshot) -> some View {
-        Group {
-            if snapshot.isOutOfOffice {
-                OutOfOfficeGlyph()
-            } else {
-                PresenceGlyph(snapshot.presence)
-            }
-        }
-        .font(.subheadline)
-        .imageScale(.medium)
+        StatusGlyph(presence: snapshot.presence, isOutOfOffice: snapshot.isOutOfOffice)
+            .font(.subheadline)
+            .imageScale(.medium)
     }
 }
 
@@ -285,14 +274,8 @@ struct WatchCircularView: View {
     }
 
     private var ringColor: Color {
-        if let snapshot = entry.snapshot, snapshot.isOutOfOffice { return .purple }
-        switch entry.snapshot?.presence ?? .unknown {
-        case .available: return .green
-        case .busy, .doNotDisturb: return .red
-        case .beRightBack, .away: return .yellow
-        case .offline: return .gray
-        case .unknown: return .gray
-        }
+        if let snapshot = entry.snapshot, snapshot.isOutOfOffice { return OutOfOfficeGlyph.tint }
+        return (entry.snapshot?.presence ?? .unknown).tint
     }
 }
 

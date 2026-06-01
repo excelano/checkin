@@ -23,15 +23,18 @@ enum StatusAppEnum: String, AppEnum {
         "Status"
     }
 
+    // Casing mirrors `Presence.displayName` (and the watch's
+    // `WatchPresenceOption`) so the same state never reads two ways across the
+    // app, Shortcuts, and watch Siri. Keep these in sync if either changes.
     static var caseDisplayRepresentations: [StatusAppEnum: DisplayRepresentation] {
         [
             .available: "Available",
             .busy: "Busy",
-            .doNotDisturb: "Do Not Disturb",
-            .beRightBack: "Be Right Back",
+            .doNotDisturb: "Do not disturb",
+            .beRightBack: "Be right back",
             .away: "Away",
             .offline: "Offline",
-            .resetToAuto: "Reset to Automatic",
+            .resetToAuto: "Reset to auto",
         ]
     }
 

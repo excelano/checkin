@@ -93,15 +93,11 @@ struct WatchGlanceView: View {
     /// of `presenceIcon` so the spinner can overlay it without changing
     /// the button's layout footprint — the glyph defines the size; the
     /// spinner just paints on top.
-    @ViewBuilder
     private var glyphContent: some View {
-        if let snapshot = receiver.snapshot, snapshot.isOutOfOffice {
-            OutOfOfficeGlyph()
-        } else if let snapshot = receiver.snapshot {
-            PresenceGlyph(snapshot.presence)
-        } else {
-            PresenceGlyph(.unknown)
-        }
+        StatusGlyph(
+            presence: receiver.snapshot?.presence ?? .unknown,
+            isOutOfOffice: receiver.snapshot?.isOutOfOffice ?? false
+        )
     }
 
     @ViewBuilder
@@ -313,14 +309,10 @@ private struct PresencePickerSheet: View {
     let onSelectPresence: (Presence) -> Void
     let onSelectOutOfOffice: () -> Void
 
-    private let states: [Presence] = [
-        .available, .busy, .doNotDisturb, .beRightBack, .away, .offline
-    ]
-
     var body: some View {
         List {
             Section {
-                ForEach(states, id: \.self) { state in
+                ForEach(Presence.settableStates, id: \.self) { state in
                     presenceRow(state)
                 }
                 outOfOfficeRow

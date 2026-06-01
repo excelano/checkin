@@ -24,12 +24,9 @@ struct PresenceMenu: View {
 
     var body: some View {
         Menu {
-            menuButton(for: .available)
-            menuButton(for: .busy)
-            menuButton(for: .doNotDisturb)
-            menuButton(for: .beRightBack)
-            menuButton(for: .away)
-            menuButton(for: .offline)
+            ForEach(Presence.settableStates, id: \.self) { state in
+                menuButton(for: state)
+            }
             outOfOfficeMenuButton
             Divider()
             Button {
@@ -43,11 +40,7 @@ struct PresenceMenu: View {
                 // footprint, so the chats section header doesn't grow
                 // taller than the email section header.
                 Text("0").opacity(0)
-                if isOutOfOffice {
-                    OutOfOfficeGlyph()
-                } else {
-                    PresenceGlyph(presence)
-                }
+                StatusGlyph(presence: presence, isOutOfOffice: isOutOfOffice)
             }
             .font(.subheadline.weight(.semibold))
         }

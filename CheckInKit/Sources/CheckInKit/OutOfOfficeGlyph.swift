@@ -12,8 +12,8 @@ public struct OutOfOfficeGlyph: View {
     public init() {}
 
     public var body: some View {
-        Image(systemName: "arrow.up.forward.circle.fill")
+        Image(systemName: Self.symbolName)
             .symbolRenderingMode(.palette)
-            .foregroundStyle(.black, .purple)
+            .foregroundStyle(.black, Self.tint)
     }
 }

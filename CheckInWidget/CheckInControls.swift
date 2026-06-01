@@ -27,9 +27,9 @@ struct OutOfOfficeControl: ControlWidget {
                 isOn: isOn,
                 action: SetOutOfOfficeIntent()
             ) { _ in
-                Label("Out of Office", systemImage: "arrow.up.forward.circle.fill")
+                Label("Out of Office", systemImage: OutOfOfficeGlyph.symbolName)
             }
-            .tint(.purple)
+            .tint(OutOfOfficeGlyph.tint)
         }
         .displayName("Out of Office")
         .description("Turn Outlook automatic replies on or off.")
@@ -47,22 +47,26 @@ struct OutOfOfficeValueProvider: ControlValueProvider {
 
 /// Shared shape for a one-tap presence control: a button that sets a fixed
 /// status. Every presence control below is the same configuration differing
-/// only in kind, status, glyph, and copy, so they all route through here.
+/// only in kind, status, and copy, so they all route through here. The glyph
+/// and tint default to the canonical presence palette (`Presence.glyphSymbolName`
+/// / `.tint`); only the non-presence Reset control overrides them.
 @available(iOS 18.0, *)
 private func statusControl(
     kind: String,
     status: StatusAppEnum,
     label: LocalizedStringKey,
-    systemImage: String,
-    tint: Color,
     displayName: LocalizedStringResource,
-    description: LocalizedStringResource
+    description: LocalizedStringResource,
+    systemImage: String? = nil,
+    tint: Color? = nil
 ) -> some ControlWidgetConfiguration {
-    StaticControlConfiguration(kind: kind) {
+    let symbol = systemImage ?? status.asPresence.glyphSymbolName
+    let color = tint ?? status.asPresence.tint
+    return StaticControlConfiguration(kind: kind) {
         ControlWidgetButton(action: SetPresenceIntent(status: status)) {
-            Label(label, systemImage: systemImage)
+            Label(label, systemImage: symbol)
         }
-        .tint(tint)
+        .tint(color)
     }
     .displayName(displayName)
     .description(description)
@@ -73,7 +77,7 @@ struct SetAvailableControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.setAvailable, status: .available,
-            label: "Available", systemImage: "checkmark.circle.fill", tint: .green,
+            label: "Available",
             displayName: "Set Available",
             description: "Set your Microsoft 365 status to Available."
         )
@@ -85,7 +89,7 @@ struct SetBusyControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.setBusy, status: .busy,
-            label: "Busy", systemImage: "minus.circle.fill", tint: .red,
+            label: "Busy",
             displayName: "Set Busy",
             description: "Set your Microsoft 365 status to Busy."
         )
@@ -97,7 +101,7 @@ struct SetDoNotDisturbControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.setDoNotDisturb, status: .doNotDisturb,
-            label: "Do Not Disturb", systemImage: "minus.circle.fill", tint: .red,
+            label: "Do Not Disturb",
             displayName: "Set Do Not Disturb",
             description: "Set your Microsoft 365 status to Do Not Disturb."
         )
@@ -109,7 +113,7 @@ struct SetBeRightBackControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.setBeRightBack, status: .beRightBack,
-            label: "Be Right Back", systemImage: "clock.fill", tint: .yellow,
+            label: "Be Right Back",
             displayName: "Set Be Right Back",
             description: "Set your Microsoft 365 status to Be Right Back."
         )
@@ -121,7 +125,7 @@ struct SetAwayControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.setAway, status: .away,
-            label: "Away", systemImage: "clock.fill", tint: .yellow,
+            label: "Away",
             displayName: "Set Away",
             description: "Set your Microsoft 365 status to Away."
         )
@@ -133,7 +137,7 @@ struct SetOfflineControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.setOffline, status: .offline,
-            label: "Offline", systemImage: "xmark.circle.fill", tint: .gray,
+            label: "Offline",
             displayName: "Set Offline",
             description: "Set your Microsoft 365 status to Offline."
         )
@@ -145,9 +149,10 @@ struct ResetStatusControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         statusControl(
             kind: ControlKind.resetStatus, status: .resetToAuto,
-            label: "Reset to auto", systemImage: "arrow.counterclockwise", tint: .cyan,
+            label: "Reset to auto",
             displayName: "Reset to auto",
-            description: "Clear your status and let Microsoft 365 detect it automatically."
+            description: "Clear your status and let Microsoft 365 detect it automatically.",
+            systemImage: "arrow.counterclockwise", tint: .cyan
         )
     }
 }
