@@ -493,30 +493,26 @@ final class GraphClient {
     }
 
     private func batchSetReadState(ids: [String], isRead: Bool) async throws -> Set<String> {
-        var failed: Set<String> = []
-        for chunk in ids.batched(by: Self.graphBatchSize) {
-            let requests = chunk.enumerated().map { (i, id) in
-                BatchRequest(
-                    id: "\(i)",
-                    method: "PATCH",
-                    url: "/me/messages/\(id)",
-                    headers: ["Content-Type": "application/json"],
-                    body: MarkReadBody(isRead: isRead)
-                )
-            }
-            let response: BatchResponse = try await core.postDecoded(
-                "/$batch",
-                body: BatchEnvelope(requests: requests)
-            )
-            failed.formUnion(failedIds(in: response, against: chunk))
-        }
-        return failed
+        try await batchPatch(ids: ids) { _ in MarkReadBody(isRead: isRead) }
     }
 
     /// Bulk flag/unflag via `/$batch`. Same chunking rationale as
     /// `batchMarkRead`.
     func batchSetFlagged(ids: [String], flagged: Bool) async throws -> Set<String> {
         let status = flagged ? "flagged" : "notFlagged"
+        return try await batchPatch(ids: ids) { _ in
+            FlagBody(flag: FlagStatusBody(flagStatus: status))
+        }
+    }
+
+    /// Bulk PATCH `/me/messages/{id}` over `/$batch`, chunked to Graph's
+    /// per-batch ceiling. Returns the ids whose sub-response wasn't 2xx.
+    /// `makeBody` supplies each message's PATCH body, so mark-read and
+    /// flag/unflag share one chunk-and-collect-failures loop.
+    private func batchPatch<B: Encodable>(
+        ids: [String],
+        makeBody: (String) -> B
+    ) async throws -> Set<String> {
         var failed: Set<String> = []
         for chunk in ids.batched(by: Self.graphBatchSize) {
             let requests = chunk.enumerated().map { (i, id) in
@@ -525,7 +521,7 @@ final class GraphClient {
                     method: "PATCH",
                     url: "/me/messages/\(id)",
                     headers: ["Content-Type": "application/json"],
-                    body: FlagBody(flag: FlagStatusBody(flagStatus: status))
+                    body: makeBody(id)
                 )
             }
             let response: BatchResponse = try await core.postDecoded(

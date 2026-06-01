@@ -631,6 +631,16 @@ final class Inbox {
         }
     }
 
+    /// Re-fetch the email list, apply it, and record a refresh failure.
+    /// The shared tail of the bulk mark-read / resurface / undo paths, which
+    /// all have to reload because their mutations move emails in or out of
+    /// the visible set.
+    private func reloadEmails() async {
+        let result = await fetchEmails()
+        await applyEmailsResult(result)
+        if result.failed { lastRefreshFailed = true }
+    }
+
     /// Shared tail for the "resurface as unread" bulk actions: batch-marks
     /// the given IDs unread, re-fetches the summary (the newly-unread
     /// emails aren't in the visible list), and registers an undo that
@@ -639,18 +649,13 @@ final class Inbox {
     private func resurfaceAsUnread(ids: [String], summary label: String) async throws {
         guard !ids.isEmpty else { return }
         _ = try await graphClient.batchMarkUnread(ids: ids)
-        let result = await fetchEmails()
-        await applyEmailsResult(result)
-        if result.failed { lastRefreshFailed = true }
+        await reloadEmails()
         await updateAppBadge()
         setPendingUndo(UndoableBulkAction(
             summary: label,
             undo: { [weak self] in
                 _ = try? await self?.graphClient.batchMarkRead(ids: ids)
-                if let self {
-                    let r = await self.fetchEmails()
-                    await self.applyEmailsResult(r)
-                }
+                await self?.reloadEmails()
                 await self?.updateAppBadge()
             }
         ))
@@ -685,9 +690,7 @@ final class Inbox {
 
     private func undoMarkRead(ids: [String]) async {
         _ = try? await graphClient.batchMarkUnread(ids: ids)
-        let result = await fetchEmails()
-        await applyEmailsResult(result)
-        if result.failed { lastRefreshFailed = true }
+        await reloadEmails()
         await updateAppBadge()
     }
 
@@ -718,9 +721,7 @@ final class Inbox {
             // beyond what we had cached. Otherwise the user is left
             // looking at a shrunken section that pull-to-refresh would fix.
             if let s = summary, s.totalUnreadEmails > s.emails.count {
-                let result = await fetchEmails()
-                await applyEmailsResult(result)
-                if result.failed { lastRefreshFailed = true }
+                await reloadEmails()
             }
         } catch {
             logger.error("performMarkRead failed: \(error.localizedDescription, privacy: .public)")
@@ -864,13 +865,22 @@ final class Inbox {
     /// `chatId` (set by `pendingChats`); otherwise no-op. Mirrors the
     /// email `markRead` shape — no undo banner (the Mark Unread button
     /// on the preview sheet covers the recovery path).
-    func markChatRead(_ chat: ChatMessage) async {
-        guard let chatId = chat.chatId else { return }
+    /// The (userId, tenantId) pair the Teams chat read/unread endpoints
+    /// require — userId from `/me`, tenantId from MSAL's home account.
+    /// Returns nil (logging under `context`) when either is missing, so the
+    /// chat mutators guard once instead of repeating the check.
+    private func chatIdentity(context: String) -> (userId: String, tenantId: String)? {
         let userId = graphClient.currentUserID
         guard let tenantId = authService.homeTenantId, !tenantId.isEmpty, !userId.isEmpty else {
-            logger.error("markChatRead: missing userId or tenantId")
-            return
+            logger.error("\(context, privacy: .public): missing userId or tenantId")
+            return nil
         }
+        return (userId, tenantId)
+    }
+
+    func markChatRead(_ chat: ChatMessage) async {
+        guard let chatId = chat.chatId else { return }
+        guard let (userId, tenantId) = chatIdentity(context: "markChatRead") else { return }
         let removedIdx = summary?.chats.firstIndex(where: { $0.chatId == chatId })
         if let idx = removedIdx {
             summary?.chats.remove(at: idx)
@@ -896,11 +906,7 @@ final class Inbox {
     /// Refreshes the summary and registers an undo. No Graph batch
     /// endpoint for chats, so this is a client-side loop.
     func markTodayChatsUnread() async {
-        let userId = graphClient.currentUserID
-        guard let tenantId = authService.homeTenantId, !tenantId.isEmpty, !userId.isEmpty else {
-            logger.error("markTodayChatsUnread: missing userId or tenantId")
-            return
-        }
+        guard let (userId, tenantId) = chatIdentity(context: "markTodayChatsUnread") else { return }
         do {
             let ids = try await graphClient.idsOfReadChatsToday()
             guard !ids.isEmpty else { return }
@@ -944,11 +950,7 @@ final class Inbox {
     /// `markUnread` recovery path.
     func markChatUnread(_ chat: ChatMessage) async {
         guard let chatId = chat.chatId else { return }
-        let userId = graphClient.currentUserID
-        guard let tenantId = authService.homeTenantId, !tenantId.isEmpty, !userId.isEmpty else {
-            logger.error("markChatUnread: missing userId or tenantId")
-            return
-        }
+        guard let (userId, tenantId) = chatIdentity(context: "markChatUnread") else { return }
         do {
             try await graphClient.markChatUnread(chatId: chatId, userId: userId, tenantId: tenantId)
             if summary?.chats.contains(where: { $0.chatId == chatId }) == false {
