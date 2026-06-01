@@ -6,12 +6,6 @@
 import CheckInKit
 import Foundation
 
-/// How far back to consider a Teams chat message "pending" — for both the
-/// in-app panel list (`GraphClient.pendingChats`) and the widget snapshot
-/// count (`fetchPendingChatCount`). Older messages are dropped so the panel
-/// stays focused on recent activity.
-public let pendingChatLookback: TimeInterval = 24 * 3600
-
 /// Assembles a `CheckInSnapshot` directly from Graph, so the widget extension
 /// can refresh itself between app launches instead of only showing what the
 /// app last wrote. Decodes lean shapes (only the fields the snapshot needs)
@@ -99,11 +93,11 @@ public extension GraphCore {
     }
 
     /// Count of chats with unread activity, applying the same filter as
-    /// `GraphClient.pendingChats`: skip hidden chats, non-message events, and
-    /// messages older than `pendingChatLookback` or already read per the
-    /// user's viewpoint. The self-filter on participant names that
-    /// `pendingChats` does isn't needed here — it affects display, not the
-    /// count.
+    /// `GraphClient.pendingChats`: skip hidden chats and non-message events,
+    /// and count a chat only when it's unread per the user's viewpoint. No
+    /// age cutoff — an unread chat counts however old its last message is.
+    /// The self-filter on participant names that `pendingChats` does isn't
+    /// needed here — it affects display, not the count.
     private func fetchPendingChatCount() async throws -> Int {
         let data: GraphList<SnapshotChat> = try await get("/me/chats", query: [
             "$select": "id,lastMessagePreview,viewpoint",
@@ -111,14 +105,13 @@ public extension GraphCore {
             "$top": "50"
         ])
 
-        let cutoff = Date().addingTimeInterval(-pendingChatLookback)
         var count = 0
         for chat in data.value {
             if chat.viewpoint?.isHidden == true { continue }
             guard let preview = chat.lastMessagePreview else { continue }
             guard preview.messageType.isEmpty || preview.messageType == "message" else { continue }
             guard preview.from?.user != nil else { continue }
-            guard let sent = parseISO8601(preview.createdDateTime), sent > cutoff else { continue }
+            guard let sent = parseISO8601(preview.createdDateTime) else { continue }
             let lastRead = (chat.viewpoint?.lastMessageReadDateTime)
                 .flatMap(parseISO8601) ?? .distantPast
             guard sent > lastRead else { continue }

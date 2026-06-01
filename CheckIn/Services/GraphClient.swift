@@ -564,10 +564,10 @@ final class GraphClient {
     ///
     /// Additional filters:
     /// - Skip chats the user hid in Teams (`viewpoint.isHidden`).
-    /// - Skip messages older than `pendingChatLookback` so the list stays
-    ///   focused on recent activity (an unread message from last week
-    ///   shouldn't linger forever in the panel).
     /// - Skip non-message events (joins, leaves, renames).
+    ///
+    /// There is no age cutoff: a genuinely unread chat surfaces however
+    /// old its last message is, so nothing unread is silently dropped.
     ///
     /// We intentionally do NOT skip chats where the last message is
     /// from the signed-in user — Teams reliably advances
@@ -583,7 +583,6 @@ final class GraphClient {
             "$top": "50"
         ])
 
-        let cutoff = Date().addingTimeInterval(-pendingChatLookback)
         var messages: [ChatMessage] = []
 
         for chat in data.value {
@@ -593,8 +592,7 @@ final class GraphClient {
             // and drop everything else — joins, leaves, renames, etc.
             guard preview.messageType.isEmpty || preview.messageType == "message" else { continue }
             guard let from = preview.from?.user else { continue }
-            guard let sent = parseISO8601(preview.createdDateTime),
-                  sent > cutoff else { continue }
+            guard let sent = parseISO8601(preview.createdDateTime) else { continue }
 
             // The real read-state check. `lastMessageReadDateTime` may be
             // `"0001-01-01T00:00:00Z"` (never read) — parseISO8601 returns
