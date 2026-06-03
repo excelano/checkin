@@ -193,6 +193,17 @@ struct ChatPreviewResponse: Decodable {
     let messageType: String
 }
 
+/// A full message from `/chats/{chatId}/messages`. Same envelope as
+/// `ChatPreviewResponse` (the chat's lastMessagePreview) plus the message
+/// `id`, used to render the recent-thread transcript in the preview sheet.
+struct ChatMessageResponse: Decodable {
+    let id: String
+    let body: BodyContentResponse
+    let from: ChatFromResponse?
+    let createdDateTime: String
+    let messageType: String
+}
+
 struct ChatFromResponse: Decodable {
     let user: ChatUserResponse?
 }

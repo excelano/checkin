@@ -605,6 +605,55 @@ final class GraphClient {
 
         return messages
     }
+
+    /// Fetch a chat's recent transcript for the preview sheet: the run of
+    /// messages back to the signed-in user's own last message, or `cap`
+    /// messages, whichever comes first. One request, no paging — when the
+    /// run is longer than the cap the sheet hands the rest off to Teams.
+    ///
+    /// The endpoint returns newest-first by default, but doesn't guarantee
+    /// order, so we sort client-side; the page size (50) sits well above
+    /// the cap so the true newest messages are present to sort. System-event
+    /// messages are dropped and bodies HTML-stripped, matching `pendingChats`.
+    /// The result is ordered oldest-first for display, with `hasMore` set
+    /// when the cap truncated the run.
+    func fetchChatThread(chatId: String, cap: Int = 20) async throws -> ChatThread {
+        let page: GraphList<ChatMessageResponse> = try await core.get(
+            "/chats/\(chatId)/messages",
+            query: ["$top": "50"]
+        )
+
+        let newestFirst = page.value
+            .compactMap { msg -> (ChatMessageResponse, Date)? in
+                guard let sent = parseISO8601(msg.createdDateTime) else { return nil }
+                return (msg, sent)
+            }
+            .sorted { $0.1 > $1.1 }
+
+        var collected: [ChatThreadMessage] = []
+        var reachedMine = false
+        for (msg, sent) in newestFirst {
+            guard msg.messageType == "message", let user = msg.from?.user else { continue }
+            let isMine = user.id == userID
+            collected.append(ChatThreadMessage(
+                id: msg.id,
+                from: user.displayName,
+                isFromMe: isMine,
+                body: stripHTML(msg.body.content),
+                sent: sent
+            ))
+            // Include my own message as the top anchor, then stop — it marks
+            // where I left off.
+            if isMine { reachedMine = true; break }
+            if collected.count >= cap { break }
+        }
+
+        // The run is truncated only if the cap stopped us before reaching my
+        // own message. Reaching my message, or exhausting a short thread,
+        // means the whole run is shown.
+        let hasMore = !reachedMine && collected.count >= cap
+        return ChatThread(messages: collected.reversed(), hasMore: hasMore)
+    }
 }
 
 private extension Array {

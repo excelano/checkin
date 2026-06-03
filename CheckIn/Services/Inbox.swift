@@ -871,6 +871,13 @@ final class Inbox {
         try await graphClient.fetchEmailBody(id: emailId)
     }
 
+    /// Used by the preview sheet to render a chat's recent transcript back
+    /// to the user's last reply. Mirrors `fetchEmailBody`: a thin
+    /// pass-through fetched lazily when the sheet opens.
+    func fetchChatThread(chatId: String) async throws -> ChatThread {
+        try await graphClient.fetchChatThread(chatId: chatId)
+    }
+
     /// Send a reply-all to an email. After success the email is
     /// optimistically dropped from the visible summary (replying
     /// implies you've handled it) — same shape as markRead's path.

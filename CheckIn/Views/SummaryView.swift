@@ -655,14 +655,7 @@ struct SummaryView: View {
     }
 
     private func openChat(_ chat: ChatMessage) {
-        if let urlString = chat.webUrl,
-           let url = DeepLinkService.passthrough(urlString) {
-            UIApplication.shared.open(url) { ok in
-                if !ok { deepLink(DeepLinkService.teams) }
-            }
-            return
-        }
-        deepLink(DeepLinkService.teams)
+        openChatInTeams(webUrl: chat.webUrl)
     }
 
     @ViewBuilder
@@ -695,8 +688,4 @@ struct SummaryView: View {
         }
     }
 
-private func deepLink(_ url: URL?) {
-        guard let url, UIApplication.shared.canOpenURL(url) else { return }
-        UIApplication.shared.open(url)
-    }
 }

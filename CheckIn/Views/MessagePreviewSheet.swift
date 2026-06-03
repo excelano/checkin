@@ -61,6 +61,12 @@ struct MessagePreviewSheet: View {
     /// `ConflictResolutionSheet`. Same flow as the calendar card's
     /// conflict button, scoped to the preview's lifetime.
     @State private var conflictTarget: Meeting?
+    /// Chat transcript walked back to the user's last reply, loaded lazily
+    /// when the sheet opens. Nil while loading; `threadFetchFailed` true
+    /// when the fetch failed, in which case the sheet degrades to the
+    /// single last-message preview it already holds.
+    @State private var chatThread: ChatThread?
+    @State private var threadFetchFailed = false
 
     var body: some View {
         ZStack {
@@ -91,6 +97,7 @@ struct MessagePreviewSheet: View {
                 return
             }
             await loadBodyIfNeeded()
+            await loadChatThreadIfNeeded()
             await autoMarkReadIfNeeded()
         }
     }
@@ -98,11 +105,13 @@ struct MessagePreviewSheet: View {
     @ViewBuilder
     private var previewBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
-            Divider().overlay(Brand.bgDarker)
+            if showsHeader {
+                header
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+                Divider().overlay(Brand.bgDarker)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     // Invitation chrome (calendar icon + time) is driven
@@ -251,21 +260,16 @@ struct MessagePreviewSheet: View {
                 attachmentIndicator(for: email)
             }
         case .chat(let chat):
+            // Sender + time are intentionally omitted: the transcript below
+            // carries every message's author and time, so a header row would
+            // just duplicate its newest entry. Only the chat-level context
+            // the transcript doesn't show (topic, participants) lives here.
             VStack(alignment: .leading, spacing: 6) {
                 if !chat.topic.isEmpty {
                     Text(chat.topic)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                }
-                HStack(spacing: 6) {
-                    Text(chat.from)
-                        .font(.subheadline)
-                        .foregroundStyle(Brand.accent)
-                    Spacer(minLength: 8)
-                    Text(relativeTime(chat.sent))
-                        .font(.caption)
-                        .foregroundStyle(Brand.textMuted)
                 }
                 if !chat.otherParticipants.isEmpty {
                     Text("with \(chat.otherParticipants.joined(separator: ", "))")
@@ -274,6 +278,19 @@ struct MessagePreviewSheet: View {
                         .lineLimit(2)
                 }
             }
+        }
+    }
+
+    /// Email always has a header (subject + sender). A chat shows one only
+    /// when it carries context the transcript doesn't — a topic or other
+    /// participants — so a 1:1 chat opens straight into its transcript with
+    /// no empty chrome.
+    private var showsHeader: Bool {
+        switch target.kind {
+        case .email:
+            return true
+        case .chat(let chat):
+            return !chat.topic.isEmpty || !chat.otherParticipants.isEmpty
         }
     }
 
@@ -412,21 +429,122 @@ struct MessagePreviewSheet: View {
                     .padding(.vertical, 40)
             }
         case .chat(let chat):
-            // Chat preview body is already populated from the summary
-            // fetch's `lastMessagePreview.body.content`. No second
-            // round-trip needed.
-            if chat.preview.isEmpty {
-                Text("(no message body)")
-                    .font(.body)
-                    .foregroundStyle(Brand.textMuted)
-                    .italic()
-            } else {
-                Text(chat.preview)
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .textSelection(.enabled)
-            }
+            chatTranscript(for: chat)
         }
+    }
+
+    /// The chat preview body. On open we already hold the last message
+    /// (`chat.preview`) from the summary fetch, so we render it
+    /// immediately and load the earlier run back to the user's last reply
+    /// in above it. The fetched transcript replaces the seed when it
+    /// lands; a failed fetch degrades silently to the seed alone.
+    @ViewBuilder
+    private func chatTranscript(for chat: ChatMessage) -> some View {
+        if let thread = chatThread, !thread.messages.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                if thread.hasMore {
+                    earlierInTeamsLine(chat)
+                }
+                ForEach(Array(thread.messages.enumerated()), id: \.element.id) { index, message in
+                    let previous = index > 0 ? thread.messages[index - 1] : nil
+                    chatMessageRow(message, showSender: startsNewSenderRun(message, after: previous))
+                }
+            }
+        } else if chatThread == nil && !threadFetchFailed {
+            // Loading: seed with the message we already have, spinner above
+            // for the earlier context still arriving.
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small).tint(Brand.accent)
+                    Text("Loading earlier messages\u{2026}")
+                        .font(.caption)
+                        .foregroundStyle(Brand.textMuted)
+                }
+                chatSeedBody(chat.preview)
+            }
+        } else {
+            // Loaded-but-empty or failed: degrade to the single last message.
+            chatSeedBody(chat.preview)
+        }
+    }
+
+    /// The seed / fallback rendering: the one last message we already hold,
+    /// matching the sheet's prior chat behavior.
+    @ViewBuilder
+    private func chatSeedBody(_ text: String) -> some View {
+        if text.isEmpty {
+            Text("(no message body)")
+                .font(.body)
+                .foregroundStyle(Brand.textMuted)
+                .italic()
+        } else {
+            Text(text)
+                .font(.body)
+                .foregroundStyle(.white)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// One transcript message. The sender label is shown only at the start
+    /// of a run from the same person, so consecutive messages group under a
+    /// single name. The user's own anchor message sits in a subtle card so
+    /// "where I left off" reads at a glance.
+    @ViewBuilder
+    private func chatMessageRow(_ message: ChatThreadMessage, showSender: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if showSender {
+                HStack(spacing: 6) {
+                    Text(message.isFromMe ? "You" : message.from)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(message.isFromMe ? Brand.accent : Brand.textMuted)
+                    Text(relativeTime(message.sent))
+                        .font(.caption2)
+                        .foregroundStyle(Brand.textMuted)
+                }
+            }
+            Text(message.body.isEmpty ? "(no message text)" : message.body)
+                .font(.body)
+                .foregroundStyle(.white)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(message.isFromMe ? 8 : 0)
+        .background(
+            message.isFromMe ? Brand.bgDarker : .clear,
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+    }
+
+    /// True when `message` begins a new run of messages from a different
+    /// author than the one above it. "You" is its own author so a stretch
+    /// of the user's own messages groups together too.
+    private func startsNewSenderRun(_ message: ChatThreadMessage,
+                                    after previous: ChatThreadMessage?) -> Bool {
+        guard let previous else { return true }
+        if message.isFromMe != previous.isFromMe { return true }
+        return !message.isFromMe && message.from != previous.from
+    }
+
+    /// Tappable hint shown at the top of the transcript when the run back
+    /// to the user's last reply was longer than the cap, handing the full
+    /// history off to Teams.
+    @ViewBuilder
+    private func earlierInTeamsLine(_ chat: ChatMessage) -> some View {
+        Button {
+            openChatInTeams(webUrl: chat.webUrl)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.forward.app")
+                    .font(.caption)
+                Text("Earlier messages are in Teams")
+                    .font(.caption)
+            }
+            .foregroundStyle(Brand.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open this chat in Teams")
     }
 
     @ViewBuilder
@@ -523,6 +641,20 @@ struct MessagePreviewSheet: View {
             emailBody = cleanEmailPreview(raw)
         } catch {
             bodyFetchFailed = true
+        }
+    }
+
+    /// Load the chat's recent transcript when the sheet opens. No-op for
+    /// emails and for chats without a `chatId` (the seed preview stands in).
+    /// On failure the sheet keeps showing the seed message it already holds.
+    private func loadChatThreadIfNeeded() async {
+        guard case .chat(let chat) = target.kind,
+              let chatId = chat.chatId,
+              chatThread == nil, !threadFetchFailed else { return }
+        do {
+            chatThread = try await inbox.fetchChatThread(chatId: chatId)
+        } catch {
+            threadFetchFailed = true
         }
     }
 
