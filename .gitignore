@@ -5,6 +5,7 @@ Azure-Application-ID.txt
 # Protected deliverable docs (never commit)
 app-store-connect-metadata.md
 excelano-com-handoff-it-approval.md
+excelano-com-handoff-blick-urls.md
 
 # Xcode
 *.xcodeproj/xcuserdata/
