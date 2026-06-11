@@ -5,5 +5,5 @@
 // MARKETING_VERSION or CURRENT_PROJECT_VERSION in any target's build settings,
 // or the target override will shadow this file and the surfaces will drift.
 
-MARKETING_VERSION = 1.2.1
-CURRENT_PROJECT_VERSION = 7
+MARKETING_VERSION = 1.3
+CURRENT_PROJECT_VERSION = 8
